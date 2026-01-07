@@ -1,0 +1,73 @@
+const { SlashCommandBuilder } = require('discord.js');
+
+const quotes = [
+  "Be yourself; everyone else is already taken. – Oscar Wilde",
+  "Two things are infinite: the universe and human stupidity; and I'm not sure about the universe. – Albert Einstein",
+  "In the middle of difficulty lies opportunity. – Albert Einstein",
+  "What we think, we become. – Buddha",
+  "The only way to do great work is to love what you do. – Steve Jobs",
+  "Success is not final, failure is not fatal: It is the courage to continue that counts. – Winston Churchill",
+  "Do what you can, with what you have, where you are. – Theodore Roosevelt",
+  "Happiness is not something ready made. It comes from your own actions. – Dalai Lama",
+  "You miss 100% of the shots you don’t take. – Wayne Gretzky",
+  "Whether you think you can or you think you can’t, you’re right. – Henry Ford",
+  "Strive not to be a success, but rather to be of value. – Albert Einstein",
+  "The journey of a thousand miles begins with one step. – Lao Tzu",
+  "Don’t count the days, make the days count. – Muhammad Ali",
+  "I have not failed. I've just found 10,000 ways that won't work. – Thomas Edison",
+  "Life is what happens when you’re busy making other plans. – John Lennon",
+  "Act as if what you do makes a difference. It does. – William James",
+  "Believe you can and you're halfway there. – Theodore Roosevelt",
+  "I think, therefore I am. – René Descartes",
+  "Do not go where the path may lead, go instead where there is no path and leave a trail. – Ralph Waldo Emerson",
+  "Keep your face always toward the sunshine—and shadows will fall behind you. – Walt Whitman",
+  "We are what we repeatedly do. Excellence, then, is not an act, but a habit. – Aristotle",
+  "Don’t cry because it’s over, smile because it happened. – Dr. Seuss",
+  "You must be the change you wish to see in the world. – Mahatma Gandhi",
+  "To live is the rarest thing in the world. Most people exist, that is all. – Oscar Wilde",
+  "Do not dwell in the past, do not dream of the future, concentrate the mind on the present moment. – Buddha",
+  "Life is either a daring adventure or nothing at all. – Helen Keller",
+  "I would rather die of passion than of boredom. – Vincent Van Gogh",
+  "The mind is everything. What you think you become. – Buddha",
+  "Imagination is more important than knowledge. – Albert Einstein",
+  "Logic will get you from A to B. Imagination will take you everywhere. – Albert Einstein",
+  "Everything you’ve ever wanted is on the other side of fear. – George Addair",
+  "It does not matter how slowly you go as long as you do not stop. – Confucius",
+  "You don’t have to see the whole staircase, just take the first step. – Martin Luther King Jr.",
+  "It always seems impossible until it’s done. – Nelson Mandela",
+  "Success usually comes to those who are too busy to be looking for it. – Henry David Thoreau",
+  "Great minds discuss ideas; average minds discuss events; small minds discuss people. – Eleanor Roosevelt",
+  "What lies behind us and what lies before us are tiny matters compared to what lies within us. – Ralph Waldo Emerson",
+  "If you're going through hell, keep going. – Winston Churchill",
+  "To be yourself in a world that is constantly trying to make you something else is the greatest accomplishment. – Ralph Waldo Emerson",
+  "A person who never made a mistake never tried anything new. – Albert Einstein",
+  "An unexamined life is not worth living. – Socrates",
+  "The only true wisdom is in knowing you know nothing. – Socrates",
+  "Don’t watch the clock; do what it does. Keep going. – Sam Levenson",
+  "Try not to become a man of success. Rather become a man of value. – Albert Einstein",
+  "If opportunity doesn’t knock, build a door. – Milton Berle",
+  "Doubt kills more dreams than failure ever will. – Suzy Kassem",
+  "Your time is limited, so don’t waste it living someone else’s life. – Steve Jobs",
+  "Dream big and dare to fail. – Norman Vaughan",
+  "He who opens a school door, closes a prison. – Victor Hugo",
+  "Education is the most powerful weapon which you can use to change the world. – Nelson Mandela",
+  "Don't let what you cannot do interfere with what you can do. – John Wooden",
+  "If you want to go fast, go alone. If you want to go far, go together. – African Proverb",
+  "Shoot for the moon. Even if you miss, you'll land among the stars. – Norman Vincent Peale",
+  "I am not a product of my circumstances. I am a product of my decisions. – Stephen Covey",
+  "What you get by achieving your goals is not as important as what you become by achieving your goals. – Zig Ziglar",
+  "Do not wait to strike till the iron is hot; but make it hot by striking. – William Butler Yeats",
+  "Don’t raise your voice, improve your argument. – Desmond Tutu",
+  "The best way to predict the future is to create it. – Peter Drucker",
+  "Success is how high you bounce when you hit bottom. – George S. Patton"
+];
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('quote')
+    .setDescription('Get an inspirational quote'),
+  async execute(interaction) {
+    const quote = quotes[Math.floor(Math.random() * quotes.length)];
+    await interaction.reply(quote);
+  },
+};

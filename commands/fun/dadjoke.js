@@ -1,0 +1,75 @@
+// commands/fun/dadjoke.js
+const { SlashCommandBuilder } = require('discord.js');
+const jokes = [
+  "I'm reading a book about anti-gravity. It's impossible to put down!",
+  "Did you hear about the restaurant on the moon? Great food, no atmosphere.",
+  "Why don't skeletons fight each other? They don't have the guts.",
+  "I'm on a seafood diet. I see food and I eat it.",
+  "Why did the scarecrow win an award? Because he was outstanding in his field.",
+  "What do you call fake spaghetti? An impasta.",
+  "Why don’t eggs tell jokes? They’d crack each other up.",
+  "How do you organize a space party? You planet.",
+  "Want to hear a construction joke? Oh... never mind, I’m still working on that one.",
+  "Why did the bicycle fall over? Because it was two-tired.",
+  "What do you call cheese that isn't yours? Nacho cheese.",
+  "Why couldn't the leopard play hide and seek? Because he was always spotted.",
+  "What did the ocean say to the beach? Nothing, it just waved.",
+  "Why do melons have weddings? Because they cantaloupe.",
+  "I used to play piano by ear, but now I use my hands.",
+  "What do you call a factory that makes good products? A satisfactory.",
+  "I would tell you a joke about an elevator, but it's an uplifting experience.",
+  "Why did the math book look sad? Because it had too many problems.",
+  "I only know 25 letters of the alphabet. I don’t know y.",
+  "Why did the golfer bring two pairs of pants? In case he got a hole in one.",
+  "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+  "What do you call a can opener that doesn’t work? A can’t opener.",
+  "I used to be addicted to the hokey pokey, but then I turned myself around.",
+  "What did one wall say to the other wall? I'll meet you at the corner.",
+  "Did you hear the rumor about butter? Well, I’m not going to spread it!",
+  "I asked my dog what's two minus two. He said nothing.",
+  "Why can't you hear a pterodactyl go to the bathroom? Because the 'P' is silent.",
+  "Why don’t scientists trust atoms? Because they make up everything.",
+  "How does a penguin build its house? Igloos it together.",
+  "Why don’t some couples go to the gym? Because some relationships don’t work out.",
+  "I once got fired from a canned juice company. Apparently I couldn’t concentrate.",
+  "I used to be a baker, but I couldn't make enough dough.",
+  "If a child refuses to sleep during nap time, are they guilty of resisting a rest?",
+  "I'm really good at my sleep. I can do it with my eyes closed.",
+  "Spring is here! I got so excited I wet my plants.",
+  "If you see a crime at an Apple Store, does that make you an iWitness?",
+  "I'm no good at math, but I know that a slice of pie is always a good idea.",
+  "Why did the coffee file a police report? It got mugged.",
+  "I once had a job as a professional cricket impersonator, but I was just winging it.",
+  "What’s brown and sticky? A stick.",
+  "I used to hate facial hair... but then it grew on me.",
+  "Why did the man name his dogs Rolex and Timex? Because they were watchdogs.",
+  "What do you call a pile of cats? A meow-tain.",
+  "Did you hear about the kidnapping at school? It’s fine, he woke up.",
+  "I used to be a banker, but I lost interest.",
+  "I told my computer I needed a break, and it said no problem—it already crashed.",
+  "Parallel lines have so much in common… it’s a shame they’ll never meet.",
+  "Why don’t graveyards ever get overcrowded? People are dying to get in.",
+  "Why did the chicken go to the séance? To talk to the other side.",
+  "How do you make holy water? You boil the hell out of it.",
+  "I don't trust stairs. They're always up to something.",
+  "Why do dads take an extra pair of socks when they go golfing? In case they get a hole in one.",
+  "What do you call someone with no body and no nose? Nobody knows.",
+  "How do you get a squirrel to like you? Act like a nut.",
+  "Why couldn't the toilet paper cross the road? It got stuck in a crack.",
+  "Why do bees have sticky hair? Because they use honeycombs.",
+  "I tried to catch fog yesterday. Mist.",
+  "I used to work for a blanket factory, but it folded.",
+  "How does a vampire start a letter? Tomb it may concern...",
+  "Why don’t oysters donate to charity? Because they’re shellfish.",
+  "What do you call an elephant that doesn’t matter? An irrelephant."
+];
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('dadjoke')
+    .setDescription('Tells a random dad joke.'),
+  async execute(interaction) {
+    const joke = jokes[Math.floor(Math.random() * jokes.length)];
+    await interaction.reply(joke);
+  }
+};

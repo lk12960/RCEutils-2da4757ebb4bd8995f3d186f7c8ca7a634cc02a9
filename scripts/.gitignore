@@ -1,0 +1,5 @@
+# Deployment cache - auto-generated
+.deploy-cache.json
+
+# Temporary test files
+tmp_*
