@@ -47,23 +47,13 @@ module.exports = {
         const [, uid] = interaction.customId.split(':');
         if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
         const choice = interaction.values[0];
-        // Dispatch to existing setup flows inline by reusing their logic
-        if (choice === 'services') {
-          const mod = require('../commands/utilities/setupbot');
-          // Call execute of setupbot with the original interaction by creating a pseudo sub-command flow: re-run the logic
-          try { await mod.execute(interaction); } catch (e) { console.error('botsetup services error:', e); try { await interaction.editReply({ content: '❌ Failed to run Services setup.' }); } catch {} }
-          return;
-        }
-        if (choice === 'orders') {
-          const mod = require('../commands/utilities/orders-setup');
-          try { await mod.execute(interaction); } catch (e) { console.error('botsetup orders error:', e); try { await interaction.editReply({ content: '❌ Failed to run Orders setup.' }); } catch {} }
-          return;
-        }
-        if (choice === 'support') {
-          const mod = require('../commands/utilities/support-setup');
-          try { await mod.execute(interaction); } catch (e) { console.error('botsetup support error:', e); try { await interaction.editReply({ content: '❌ Failed to run Support setup.' }); } catch {} }
-          return;
-        }
+        
+        // Setup flows are now handled by /botsetup command and related utilities
+        // The individual setup commands have been removed - all setup is done through botsetup
+        return interaction.reply({ 
+          content: '✅ Setup flows are now integrated. Use `/setorderinfo` for category management, `/category-roles` for role mapping, and check documentation for setup guidance.', 
+          flags: 64 
+        });
       }
 
       if (interaction.customId === 'rd_order_info') {
@@ -176,6 +166,18 @@ module.exports = {
 
     // Buttons
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('catrole_save:')) {
+        const parts = interaction.customId.split(':');
+        const uid = parts[1];
+        const category = parts[2];
+        const roleId = parts[3];
+        if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
+        if (!category || category === 'none') return interaction.reply({ content: 'Please select a category first.', flags: 64 });
+        if (!roleId || roleId === 'none') return interaction.reply({ content: 'Please select a role first.', flags: 64 });
+        await (require('../utils/categoryRoleSync').setCategoryRole)(interaction.guild.id, category, roleId);
+        return interaction.reply({ content: `✅ Mapped '${category}' → <@&${roleId}>.`, flags: 64 });
+      }
+
       if (interaction.customId.startsWith('payout_approve:')) {
         const [, payoutId, requesterId] = interaction.customId.split(':');
         const { decidePayout, getPayoutById } = require('../utils/payoutManager');
@@ -257,36 +259,47 @@ module.exports = {
         }
       }
 
-      if (interaction.customId.startsWith('catrole_select:')) {
+      // This is a STRING select menu, not handled here
+      return;
+    }
+
+    // Role select menus
+    if (interaction.isRoleSelectMenu()) {
+      if (interaction.customId.startsWith('catrole_role:')) {
         const [, uid] = interaction.customId.split(':');
         if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
+        // Store the selected role in the button's customId
+        const selectedRoleId = interaction.values[0];
         const comps = interaction.message.components.map(r => ActionRowBuilder.from(r.toJSON ? r.toJSON() : r));
-        const rowRole = comps[1];
-        // Store selected category in Save button customId
-        const rowButtons = comps[2];
-        const btn = rowButtons.components.find(c => (c.data?.custom_id||c.customId||'').startsWith('catrole_save:'));
-        const newId = `catrole_save:${uid}:${interaction.values[0]}`;
+        const btnRow = comps[2];
+        const btn = btnRow.components.find(c => (c.data?.custom_id||c.customId||'').startsWith('catrole_save:'));
+        // Extract current category from button if exists
+        const currentId = btn.data?.custom_id || btn.customId;
+        const parts = currentId.split(':');
+        const category = parts[2] || 'none';
+        const newId = `catrole_save:${uid}:${category}:${selectedRoleId}`;
         if (btn.data) btn.data.custom_id = newId; else btn.setCustomId(newId);
         return interaction.update({ components: comps });
       }
-      if (interaction.customId.startsWith('catrole_role:')) {
-        // Nothing to do immediately; role is carried by interaction.values or resolved roles
-        return interaction.reply({ content: 'Role selected. Click Save Mapping to apply.', flags: 64, ephemeral: undefined }).catch(()=>{});
-      }
-      if (interaction.customId.startsWith('catrole_save:')) {
-        const parts = interaction.customId.split(':');
-        const uid = parts[1];
-        const category = parts[2];
+      return;
+    }
+
+    // Back to string select menus
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('catrole_select:')) {
+        const [, uid] = interaction.customId.split(':');
         if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
-        const roleId = interaction.message.components?.[1]?.components?.[0]?.values?.[0] || (interaction.values && interaction.values[0]);
-        // Fallback: read from resolved roles if present
-        let selectedRoleId = roleId;
-        if (!selectedRoleId && interaction.roles && interaction.roles.size) {
-          selectedRoleId = interaction.roles.first().id;
-        }
-        if (!selectedRoleId) return interaction.reply({ content: 'Please select a role first.', flags: 64 });
-        await (require('../utils/categoryRoleSync').setCategoryRole)(interaction.guild.id, category, selectedRoleId);
-        return interaction.reply({ content: `✅ Mapped '${category}' → <@&${selectedRoleId}>.`, flags: 64 });
+        const selectedCategory = interaction.values[0];
+        const comps = interaction.message.components.map(r => ActionRowBuilder.from(r.toJSON ? r.toJSON() : r));
+        const btnRow = comps[2];
+        const btn = btnRow.components.find(c => (c.data?.custom_id||c.customId||'').startsWith('catrole_save:'));
+        // Extract current roleId from button if exists
+        const currentId = btn.data?.custom_id || btn.customId;
+        const parts = currentId.split(':');
+        const roleId = parts[3] || 'none';
+        const newId = `catrole_save:${uid}:${selectedCategory}:${roleId}`;
+        if (btn.data) btn.data.custom_id = newId; else btn.setCustomId(newId);
+        return interaction.update({ components: comps });
       }
 
       if (interaction.customId.startsWith('soi_proceed:')) {

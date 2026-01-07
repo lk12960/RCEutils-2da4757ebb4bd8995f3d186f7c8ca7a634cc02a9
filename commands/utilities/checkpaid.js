@@ -34,7 +34,9 @@ module.exports = {
       const price = payment.price;
 
       // Check ownership via Inventories Game Pass Owners
+      console.log(`[checkpaid] Checking ownership for ${robloxUser} on pass ${passId}...`);
       const owns = await checkGamePassOwnership(passId, robloxUser);
+      console.log(`[checkpaid] Ownership result: ${owns}`);
 
       if (owns) {
         const embed = new EmbedBuilder()

@@ -198,17 +198,20 @@ function loadCommands() {
 }
 
 /**
- * Fetch existing commands from Discord
+ * Fetch existing commands from Discord with timeout
  */
 async function fetchExistingCommands(rest, clientId, guildId = null) {
   try {
-    if (guildId) {
-      const commands = await rest.get(Routes.applicationGuildCommands(clientId, guildId));
-      return new Map(commands.map(cmd => [cmd.name, cmd]));
-    } else {
-      const commands = await rest.get(Routes.applicationCommands(clientId));
-      return new Map(commands.map(cmd => [cmd.name, cmd]));
-    }
+    const fetchPromise = guildId 
+      ? rest.get(Routes.applicationGuildCommands(clientId, guildId))
+      : rest.get(Routes.applicationCommands(clientId));
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Fetch timeout after 30 seconds')), 30000)
+    );
+    
+    const commands = await Promise.race([fetchPromise, timeoutPromise]);
+    return new Map(commands.map(cmd => [cmd.name, cmd]));
   } catch (error) {
     log.error(`Failed to fetch existing commands: ${error.message}`);
     return new Map();
@@ -448,10 +451,17 @@ async function deploy() {
     }
     
     if (!SKIP_GUILD) {
-      // Fetch existing guild commands
+      // Fetch existing guild commands with retry
       log.step('Fetching existing guild commands...');
-      const existingGuild = await fetchExistingCommands(rest, CLIENT_ID, GUILD_ID);
-      log.info(`Found ${existingGuild.size} existing guild command(s)`);
+      let existingGuild = new Map();
+      
+      try {
+        existingGuild = await fetchExistingCommands(rest, CLIENT_ID, GUILD_ID);
+        log.info(`Found ${existingGuild.size} existing guild command(s)`);
+      } catch (error) {
+        log.warning(`Failed to fetch existing commands: ${error.message}`);
+        log.warning('Assuming no existing commands (will create all)');
+      }
       
       // Determine actions
       const guildActions = determineActions(guildCommands, existingGuild, cache, 'guild');
