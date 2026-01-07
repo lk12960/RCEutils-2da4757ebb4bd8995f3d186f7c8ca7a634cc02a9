@@ -258,9 +258,6 @@ module.exports = {
           return interaction.reply({ content: '❌ Failed to log order.', flags: 64 });
         }
       }
-
-      // This is a STRING select menu, not handled here
-      return;
     }
 
     // Role select menus
