@@ -125,29 +125,73 @@ function getPayment(orderIdOrNumber) {
   });
 }
 
-function markConfirmed(orderId) {
+function markConfirmed(orderIdOrNumber) {
   return new Promise((resolve, reject) => {
     const ts = new Date().toISOString();
+    
+    // Try by order_id first
     db.run(
       `UPDATE payments SET status = 'CONFIRMED', confirmed_at = ? WHERE order_id = ?`,
-      [ts, orderId],
+      [ts, orderIdOrNumber],
       function (err) {
         if (err) return reject(err);
-        resolve(this.changes > 0);
+        if (this.changes > 0) {
+          console.log(`[markConfirmed] Updated order_id ${orderIdOrNumber}`);
+          return resolve(true);
+        }
+        
+        // Fallback: try by order_num
+        const num = parseInt(orderIdOrNumber, 10);
+        if (!isNaN(num)) {
+          db.run(
+            `UPDATE payments SET status = 'CONFIRMED', confirmed_at = ? WHERE order_num = ?`,
+            [ts, num],
+            function (e2) {
+              if (e2) return reject(e2);
+              console.log(`[markConfirmed] Updated order_num ${num}, changes: ${this.changes}`);
+              resolve(this.changes > 0);
+            }
+          );
+        } else {
+          console.log(`[markConfirmed] No rows updated for ${orderIdOrNumber}`);
+          resolve(false);
+        }
       }
     );
   });
 }
 
-function tryMarkLogged(orderId) {
+function tryMarkLogged(orderIdOrNumber) {
   return new Promise((resolve, reject) => {
     const ts = new Date().toISOString();
+    
+    // Try by order_id first - update even if already logged (idempotent)
     db.run(
-      `UPDATE payments SET status = 'LOGGED', logged_at = ? WHERE order_id = ? AND (logged_at IS NULL OR logged_at = '')`,
-      [ts, orderId],
+      `UPDATE payments SET status = 'LOGGED', logged_at = ? WHERE order_id = ?`,
+      [ts, orderIdOrNumber],
       function (err) {
         if (err) return reject(err);
-        resolve(this.changes > 0);
+        if (this.changes > 0) {
+          console.log(`[tryMarkLogged] Updated order_id ${orderIdOrNumber}`);
+          return resolve(true);
+        }
+        
+        // Fallback: try by order_num
+        const num = parseInt(orderIdOrNumber, 10);
+        if (!isNaN(num)) {
+          db.run(
+            `UPDATE payments SET status = 'LOGGED', logged_at = ? WHERE order_num = ?`,
+            [ts, num],
+            function (e2) {
+              if (e2) return reject(e2);
+              console.log(`[tryMarkLogged] Updated order_num ${num}, changes: ${this.changes}`);
+              resolve(this.changes > 0);
+            }
+          );
+        } else {
+          console.log(`[tryMarkLogged] No rows updated for ${orderIdOrNumber}`);
+          resolve(false);
+        }
       }
     );
   });

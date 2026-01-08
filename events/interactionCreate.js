@@ -51,7 +51,7 @@ module.exports = {
         // Setup flows are now handled by /botsetup command and related utilities
         // The individual setup commands have been removed - all setup is done through botsetup
         return interaction.reply({ 
-          content: '✅ Setup flows are now integrated. Use `/setorderinfo` for category management, `/category-roles` for role mapping, and check documentation for setup guidance.', 
+          content: '✅ Setup flows are now integrated. Use `/setorderinfo` for category management. Role mappings are hardcoded.', 
           flags: 64 
         });
       }
@@ -167,22 +167,17 @@ module.exports = {
     // Buttons
     if (interaction.isButton()) {
       if (interaction.customId.startsWith('catrole_save:')) {
-        const parts = interaction.customId.split(':');
-        const uid = parts[1];
-        const category = parts[2];
-        const roleId = parts[3];
-        if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
-        if (!category || category === 'none') return interaction.reply({ content: 'Please select a category first.', flags: 64 });
-        if (!roleId || roleId === 'none') return interaction.reply({ content: 'Please select a role first.', flags: 64 });
-        await (require('../utils/categoryRoleSync').setCategoryRole)(interaction.guild.id, category, roleId);
-        return interaction.reply({ content: `✅ Mapped '${category}' → <@&${roleId}>.`, flags: 64 });
+        return interaction.reply({ content: '❌ Category role mapping is now hardcoded and cannot be changed through this interface.', flags: 64 });
       }
 
       if (interaction.customId.startsWith('payout_approve:')) {
+        await interaction.deferUpdate();
         const [, payoutId, requesterId] = interaction.customId.split(':');
         const { decidePayout, getPayoutById } = require('../utils/payoutManager');
         await decidePayout(Number(payoutId), 'APPROVED', interaction.user.id, null);
         const payout = await getPayoutById(Number(payoutId));
+        
+        // Send DM to designer
         try {
           const user = await interaction.client.users.fetch(requesterId).catch(()=>null);
           if (user) {
@@ -194,28 +189,29 @@ module.exports = {
                 { name: 'Orders', value: String(payout.order_count), inline: true },
                 { name: 'Payout (Robux)', value: String(payout.payout_amount), inline: true },
               )
+              .setColor(0x00FF00) // Green
               .setFooter({ text: `Approved by ${interaction.user.tag}` });
             await user.send({ embeds: [dm] }).catch(()=>{});
           }
         } catch {}
-        // Log to channel
-        try {
-          const logCh = interaction.client.channels.cache.get('1458207384982786282');
-          if (logCh && logCh.isTextBased()) {
-            const { EmbedBuilder } = require('discord.js');
-            const e = new EmbedBuilder()
-              .setTitle('Designer Payout Completed')
-              .addFields(
-                { name: 'Designer', value: `<@${payout.designer_id}>`, inline: true },
-                { name: 'Orders', value: String(payout.order_count), inline: true },
-                { name: 'Amount (Robux)', value: String(payout.payout_amount), inline: true },
-                { name: 'Approved By', value: `${interaction.user}`, inline: true },
-              )
-              .setTimestamp(new Date());
-            await logCh.send({ embeds: [e] });
-          }
-        } catch {}
-        return interaction.reply({ content: '✅ Marked as completed.', flags: 64 });
+        
+        // Edit the original message embed
+        const originalEmbed = interaction.message.embeds[0];
+        const { EmbedBuilder } = require('discord.js');
+        const updatedEmbed = new EmbedBuilder()
+          .setTitle('Payment Completed')
+          .setColor(0x00FF00) // Green
+          .setDescription(`${interaction.user} marked this payout as completed.`)
+          .addFields(
+            { name: 'Designer', value: `<@${payout.designer_id}>`, inline: true },
+            { name: 'Orders', value: String(payout.order_count), inline: true },
+            { name: 'Total (Robux)', value: String(payout.total_amount), inline: true },
+            { name: 'Payout (Robux)', value: String(payout.payout_amount), inline: true },
+            { name: 'Approved By', value: `${interaction.user}`, inline: true },
+          )
+          .setFooter({ text: `Payout ID: ${payoutId} • Completed at ${new Date().toUTCString()}` });
+        
+        return interaction.editReply({ embeds: [updatedEmbed], components: [] });
       }
 
       if (interaction.customId.startsWith('payout_deny:')) {
@@ -227,35 +223,77 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('log_order:')) {
+        // Defer the update to prevent timeout
+        await interaction.deferUpdate();
+        
         const [, orderId, designerId] = interaction.customId.split(':');
-        if (interaction.user.id !== designerId) return interaction.reply({ content: 'Only the assigned designer may log this order.', flags: 64 });
+        
+        // Check if designerId is a Discord ID or Roblox username
+        const isDiscordId = /^\d{17,19}$/.test(designerId);
+        
+        // If it's a Discord ID, only that user can log
+        if (isDiscordId && interaction.user.id !== designerId) {
+          return interaction.followUp({ content: 'Only the assigned designer may log this order.', ephemeral: true });
+        }
+        
+        // If it's a Roblox username, check for management permissions
+        if (!isDiscordId) {
+          const hasPerms = interaction.member.permissions.has('ManageGuild') || 
+                          interaction.user.id === interaction.guild.ownerId;
+          if (!hasPerms) {
+            return interaction.followUp({ content: '❌ You need management permissions to log this order.', ephemeral: true });
+          }
+        }
+        
         try {
           const { getPayment, tryMarkLogged } = require('../utils/paymentManager');
-          const { getSetting } = require('../utils/settingsManager');
           const payment = await getPayment(orderId);
-          if (!payment) return interaction.reply({ content: 'Order not found.', flags: 64 });
-          if (payment.status !== 'CONFIRMED' && payment.status !== 'LOGGED') return interaction.reply({ content: 'Payment not confirmed yet.', flags: 64 });
-          const marked = await tryMarkLogged(orderId);
-          if (!marked) return interaction.reply({ content: 'This order was already logged.', flags: 64 });
-          const logId = await getSetting('orders_log_channel_id');
-          const logChannel = logId ? interaction.client.channels.cache.get(logId) : null;
-          if (!logChannel || !logChannel.isTextBased()) return interaction.reply({ content: 'Orders log channel not available.', flags: 64 });
+          if (!payment) return interaction.followUp({ content: 'Order not found.', ephemeral: true });
+          
+          console.log(`[log_order] Order ${orderId} status: ${payment.status}`);
+          
+          if (payment.status !== 'CONFIRMED' && payment.status !== 'LOGGED') {
+            return interaction.followUp({ content: `❌ Payment not confirmed yet. Current status: ${payment.status}`, ephemeral: true });
+          }
+          
+          // Mark as logged (idempotent - won't fail if already logged)
+          await tryMarkLogged(orderId);
+          
+          // Hardcoded orders log channel
+          const ORDERS_LOG_CHANNEL_ID = '1457531008835522741';
+          const logChannel = interaction.client.channels.cache.get(ORDERS_LOG_CHANNEL_ID);
+          if (!logChannel || !logChannel.isTextBased()) return interaction.followUp({ content: 'Orders log channel not available.', ephemeral: true });
           const { EmbedBuilder } = require('discord.js');
-          const embed = new EmbedBuilder()
+          const logEmbed = new EmbedBuilder()
             .setTitle('Order Logged')
             .setColor(BRAND_COLOR_HEX)
             .addFields(
               { name: 'Purchaser (Roblox)', value: payment.roblox_username, inline: true },
-              { name: 'Designer', value: `<@${designerId}>`, inline: true },
+              { name: 'Designer', value: isDiscordId ? `<@${designerId}>` : designerId, inline: true },
               { name: 'Price', value: `${payment.price} Robux`, inline: true },
               { name: 'Reason', value: payment.reason }
             )
             .setFooter({ text: `Order ID: ${orderId}` });
-          await logChannel.send({ embeds: [embed] });
-          return interaction.reply({ content: '✅ Order logged to Orders Log.', flags: 64 });
+          await logChannel.send({ embeds: [logEmbed] });
+          
+          // Update the original message embed to show order confirmed and logged (green)
+          const updatedEmbed = new EmbedBuilder()
+            .setTitle(`King's Customs — Order Confirmed and Logged`)
+            .setDescription(
+              `**Roblox User:** ${payment.roblox_username}\n` +
+              `**Reason:** ${payment.reason}\n` +
+              `**Price:** ${payment.price} Robux`
+            )
+            .setFooter({ text: `Order ID: ${orderId}` })
+            .setColor(0x00FF00); // Green
+          
+          // Remove the button by passing empty components array
+          await interaction.editReply({ embeds: [updatedEmbed], components: [] });
+          
+          return interaction.followUp({ content: '✅ Order logged to Orders Log.', ephemeral: true });
         } catch (e) {
           console.error('log_order button error:', e);
-          return interaction.reply({ content: '❌ Failed to log order.', flags: 64 });
+          return interaction.followUp({ content: '❌ Failed to log order.', ephemeral: true });
         }
       }
     }
@@ -263,20 +301,7 @@ module.exports = {
     // Role select menus
     if (interaction.isRoleSelectMenu()) {
       if (interaction.customId.startsWith('catrole_role:')) {
-        const [, uid] = interaction.customId.split(':');
-        if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
-        // Store the selected role in the button's customId
-        const selectedRoleId = interaction.values[0];
-        const comps = interaction.message.components.map(r => ActionRowBuilder.from(r.toJSON ? r.toJSON() : r));
-        const btnRow = comps[2];
-        const btn = btnRow.components.find(c => (c.data?.custom_id||c.customId||'').startsWith('catrole_save:'));
-        // Extract current category from button if exists
-        const currentId = btn.data?.custom_id || btn.customId;
-        const parts = currentId.split(':');
-        const category = parts[2] || 'none';
-        const newId = `catrole_save:${uid}:${category}:${selectedRoleId}`;
-        if (btn.data) btn.data.custom_id = newId; else btn.setCustomId(newId);
-        return interaction.update({ components: comps });
+        return interaction.reply({ content: '❌ Category role mapping is now hardcoded and cannot be changed through this interface.', flags: 64 });
       }
       return;
     }
@@ -284,19 +309,7 @@ module.exports = {
     // Back to string select menus
     if (interaction.isStringSelectMenu()) {
       if (interaction.customId.startsWith('catrole_select:')) {
-        const [, uid] = interaction.customId.split(':');
-        if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
-        const selectedCategory = interaction.values[0];
-        const comps = interaction.message.components.map(r => ActionRowBuilder.from(r.toJSON ? r.toJSON() : r));
-        const btnRow = comps[2];
-        const btn = btnRow.components.find(c => (c.data?.custom_id||c.customId||'').startsWith('catrole_save:'));
-        // Extract current roleId from button if exists
-        const currentId = btn.data?.custom_id || btn.customId;
-        const parts = currentId.split(':');
-        const roleId = parts[3] || 'none';
-        const newId = `catrole_save:${uid}:${selectedCategory}:${roleId}`;
-        if (btn.data) btn.data.custom_id = newId; else btn.setCustomId(newId);
-        return interaction.update({ components: comps });
+        return interaction.reply({ content: '❌ Category role mapping is now hardcoded and cannot be changed through this interface.', flags: 64 });
       }
 
       if (interaction.customId.startsWith('soi_proceed:')) {
@@ -402,7 +415,7 @@ module.exports = {
           return interaction.showModal(modal);
         }
         if (action === 'sync_roles') {
-          return interaction.reply({ content: 'ℹ️ Role auto-sync has been disabled. Use /category-roles to map categories to existing roles.', flags: 64 });
+          return interaction.reply({ content: 'ℹ️ Role auto-sync has been disabled. Role mappings are hardcoded.', flags: 64 });
         }
         return;
       }
@@ -482,15 +495,17 @@ module.exports = {
         return interaction.showModal(modal);
       }
       if (interaction.customId === 'ticket_delay_cancel') {
-        return interaction.update({ content: 'Cancelled.', components: [] });
+        await interaction.deferUpdate();
+        return interaction.editReply({ content: 'Cancelled.', components: [] });
       }
       if (interaction.customId.startsWith('ticket_claim:')) {
+        await interaction.deferReply({ ephemeral: false });
         const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const meta = await getTicketMeta(interaction.channel);
         meta.claimedBy = interaction.user.id;
         try { await interaction.channel.setTopic(JSON.stringify(meta)); } catch {}
-        return interaction.reply({ content: `✅ Ticket claimed by <@${interaction.user.id}>.`, ephemeral: false });
+        return interaction.editReply({ content: `✅ Ticket claimed by <@${interaction.user.id}>.` });
       }
       if (interaction.customId.startsWith('ticket_close_reason:')) {
         const channelId = interaction.customId.split(':')[1];
@@ -501,36 +516,43 @@ module.exports = {
         return interaction.showModal(modal);
       }
       if (interaction.customId.startsWith('ticket_close:')) {
+        await interaction.deferReply({ ephemeral: true });
         const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(`ticket_close_confirm:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Danger),
           new ButtonBuilder().setCustomId('ticket_close_cancel').setLabel('Nevermind').setStyle(ButtonStyle.Secondary),
         );
         const embed = new EmbedBuilder().setTitle('Confirm Close').setDescription('Are you sure you want to close this ticket?').setColor(0xFFAA00);
-        return interaction.reply({ embeds: [embed], components: [row], ephemeral: true });
+        return interaction.editReply({ embeds: [embed], components: [row] });
       }
       if (interaction.customId.startsWith('ticket_close_confirm:')) {
+        await interaction.deferReply({ ephemeral: true });
         const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const meta = await getTicketMeta(interaction.channel);
+        await interaction.editReply({ content: '✅ Closing ticket...' });
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null });
       }
       if (interaction.customId === 'ticket_close_cancel') {
-        return interaction.update({ content: 'Close cancelled.', components: [] });
+        await interaction.deferUpdate();
+        return interaction.editReply({ content: 'Close cancelled.', components: [] });
       }
       if (interaction.customId.startsWith('close_req_confirm:')) {
+        await interaction.deferReply({ ephemeral: true });
         const [, chId] = interaction.customId.split(':');
-        if (interaction.channel.id !== chId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        if (interaction.channel.id !== chId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const meta = await getTicketMeta(interaction.channel);
+        await interaction.editReply({ content: '✅ Closing ticket...' });
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: 'Closed by request' });
       }
       if (interaction.customId.startsWith('close_req_keep:')) {
+        await interaction.deferUpdate();
         const [, chId] = interaction.customId.split(':');
-        if (interaction.channel.id !== chId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        if (interaction.channel.id !== chId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const { clearChannelTimer } = require('../utils/ticketTimers');
         clearChannelTimer(chId);
-        return interaction.update({ content: 'Okay, keeping the ticket open.', components: [] });
+        return interaction.editReply({ content: 'Okay, keeping the ticket open.', components: [] });
       }
     }
 
@@ -646,13 +668,14 @@ module.exports = {
 
         // Create ticket channel
         const ch = await createTicketChannel(interaction.guild, interaction.user, category);
-        const role = interaction.guild.roles.cache.find(r => r.name === category);
+        const { getCategoryRole } = require('../utils/categoryRoleSync');
+        const roleId = getCategoryRole(category);
         const welcome = buildWelcomeEmbed(interaction.user, category);
         const info = buildUserInfoEmbed(interaction.member || interaction.user);
         const form = buildFormEmbed({ roblox, details, deadline });
         const buttons = buildTicketButtons(ch.id);
 
-        await ch.send({ content: `${interaction.user} ${role ? role : ''}`, embeds: [welcome, info, form], components: [buttons] });
+        await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply({ content: `✅ Ticket created: ${ch}` });
         } else {
@@ -678,12 +701,14 @@ module.exports = {
         const { ensureSupportRoles } = require('../utils/categoryRoleSync');
         try { await ensureSupportRoles(interaction.guild); } catch {}
         const ch = await createTicketChannelWithParent(interaction.guild, interaction.user, category, parentId);
-        const role = interaction.guild.roles.cache.find(r => r.name === category);
+        const { getSupportRoles } = require('../utils/categoryRoleSync');
+        const supportRoles = getSupportRoles();
+        const roleId = supportRoles[category];
         const welcome = new (require('discord.js').EmbedBuilder)().setTitle(`Support — ${category}`).setColor(BRAND_COLOR_HEX);
         const info = new (require('discord.js').EmbedBuilder)().setTitle('User Information').setColor(BRAND_COLOR_HEX).addFields({ name: 'Roblox Username', value: roblox });
         const form = new (require('discord.js').EmbedBuilder)().setTitle('Support Details').setColor(BRAND_COLOR_HEX).addFields({ name: 'Reason', value: reason });
         const buttons = buildTicketButtons(ch.id);
-        await ch.send({ content: `${interaction.user} ${role ? role : ''}`, embeds: [welcome, info, form], components: [buttons] });
+        await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
         if (interaction.deferred || interaction.replied) {
           await interaction.editReply({ content: `✅ Support ticket created: ${ch}` });
         } else {
@@ -693,11 +718,14 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('payout_deny_modal:')) {
+        await interaction.deferUpdate();
         const [, payoutId, requesterId] = interaction.customId.split(':');
         const reason = interaction.fields.getTextInputValue('reason');
         const { decidePayout, getPayoutById } = require('../utils/payoutManager');
         await decidePayout(Number(payoutId), 'DENIED', interaction.user.id, reason);
         const payout = await getPayoutById(Number(payoutId));
+        
+        // Send DM to designer
         try {
           const user = await interaction.client.users.fetch(requesterId).catch(()=>null);
           if (user) {
@@ -710,29 +738,42 @@ module.exports = {
                 { name: 'Requested (Robux)', value: String(payout.payout_amount), inline: true },
                 { name: 'Reason', value: reason },
               )
+              .setColor(0xFF0000) // Red
               .setFooter({ text: `Denied by ${interaction.user.tag}` });
             await user.send({ embeds: [dm] }).catch(()=>{});
           }
         } catch {}
-        // Log
-        try {
-          const logCh = interaction.client.channels.cache.get('1458207384982786282');
-          if (logCh && logCh.isTextBased()) {
-            const { EmbedBuilder } = require('discord.js');
-            const e = new EmbedBuilder()
-              .setTitle('Designer Payout Denied')
-              .addFields(
-                { name: 'Designer', value: `<@${payout.designer_id}>`, inline: true },
-                { name: 'Orders', value: String(payout.order_count), inline: true },
-                { name: 'Amount (Robux)', value: String(payout.payout_amount), inline: true },
-                { name: 'Denied By', value: `${interaction.user}`, inline: true },
-                { name: 'Reason', value: reason },
-              )
-              .setTimestamp(new Date());
-            await logCh.send({ embeds: [e] });
+        
+        // Edit the original message embed
+        const { EmbedBuilder } = require('discord.js');
+        const updatedEmbed = new EmbedBuilder()
+          .setTitle('Payment Denied')
+          .setColor(0xFF0000) // Red
+          .setDescription(`${interaction.user} denied this payout request.`)
+          .addFields(
+            { name: 'Designer', value: `<@${payout.designer_id}>`, inline: true },
+            { name: 'Orders', value: String(payout.order_count), inline: true },
+            { name: 'Total (Robux)', value: String(payout.total_amount), inline: true },
+            { name: 'Requested (Robux)', value: String(payout.payout_amount), inline: true },
+            { name: 'Denied By', value: `${interaction.user}`, inline: true },
+            { name: 'Reason', value: reason },
+          )
+          .setFooter({ text: `Payout ID: ${payoutId} • Denied at ${new Date().toUTCString()}` });
+        
+        // Find and edit the original payout request message
+        const approvalChannel = interaction.client.channels.cache.get('1458206214528962751');
+        if (approvalChannel && approvalChannel.isTextBased()) {
+          // Search for the message with this payout ID
+          const messages = await approvalChannel.messages.fetch({ limit: 100 });
+          const payoutMessage = messages.find(msg => 
+            msg.embeds[0]?.footer?.text?.includes(`Payout ID: ${payoutId}`)
+          );
+          if (payoutMessage) {
+            await payoutMessage.edit({ embeds: [updatedEmbed], components: [] });
           }
-        } catch {}
-        return interaction.reply({ content: '✅ Denied and user notified.', flags: 64 });
+        }
+        
+        return interaction.followUp({ content: '✅ Denied and user notified.', flags: 64 });
       }
 
       if (interaction.customId.startsWith('ticket_close_modal:')) {

@@ -45,12 +45,13 @@ module.exports = {
       if (!interaction.deferred && !interaction.replied) { try { await interaction.deferReply({ flags: 64 }); deferred = true; } catch {} }
 
       const ch = await createTicketChannel(interaction.guild, interaction.user, category);
-      const role = interaction.guild.roles.cache.find(r => r.name === category);
+      const { getCategoryRole } = require('../../utils/categoryRoleSync');
+      const roleId = getCategoryRole(category);
       const welcome = buildWelcomeEmbed(interaction.user, category);
       const info = buildUserInfoEmbed(interaction.member || interaction.user);
       const form = buildFormEmbed({ roblox, details, deadline: 'N/A' });
       const buttons = buildTicketButtons(ch.id);
-      await ch.send({ content: `${interaction.user} ${role ? role : ''}`, embeds: [welcome, info, form], components: [buttons] });
+      await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
       if (interaction.deferred || interaction.replied || deferred) return interaction.editReply({ content: `✅ Ticket created: ${ch}` });
       return interaction.reply({ content: `✅ Ticket created: ${ch}`, flags: 64 });
     } else {
@@ -60,13 +61,15 @@ module.exports = {
       const { ensureSupportRoles } = require('../../utils/categoryRoleSync');
       try { await ensureSupportRoles(interaction.guild); } catch {}
       const ch = await createTicketChannelWithParent(interaction.guild, interaction.user, category, parent.id);
-      const role = interaction.guild.roles.cache.find(r => r.name === category);
+      const { getSupportRoles } = require('../../utils/categoryRoleSync');
+      const supportRoles = getSupportRoles();
+      const roleId = supportRoles[category];
       const { EmbedBuilder } = require('discord.js');
       const welcome = new EmbedBuilder().setTitle(`Support — ${category}`).setColor(0x00A2FF);
       const info = new EmbedBuilder().setTitle('User Information').addFields({ name: 'Roblox Username', value: roblox }).setColor(0x00A2FF);
       const form = new EmbedBuilder().setTitle('Details').addFields({ name: 'Reason', value: details }).setColor(0x00A2FF);
       const buttons = buildTicketButtons(ch.id);
-      await ch.send({ content: `${interaction.user} ${role ? role : ''}`, embeds: [welcome, info, form], components: [buttons] });
+      await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
       if (interaction.deferred || interaction.replied || deferred) return interaction.editReply({ content: `✅ Support ticket created: ${ch}` });
       return interaction.reply({ content: `✅ Support ticket created: ${ch}`, flags: 64 });
     }

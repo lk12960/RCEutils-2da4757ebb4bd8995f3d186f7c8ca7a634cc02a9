@@ -1,57 +1,60 @@
-const db = require('../database/db');
-const { listCategories } = require('./priceManager');
+// Hardcoded category to role mapping
+const CATEGORY_ROLES = {
+  'Livery': '1457931808384483460',
+  'Uniform': '1457932046063370504',
+  'ELS': '1457931809202372799',
+  'Graphics': '1457931804928381034',
+  'Discord Server': '1457927114354327662',
+  'Discord Bot': '1457930518245937300'
+};
 
-// Deprecated: no longer auto-creates roles for categories
-async function ensureCategoryRoles(guild) {
-  return { created: 0 };
+// Support ticket roles
+const SUPPORT_ROLES = {
+  'General Support': '1457921599322722449',
+  'HR Support': '1457922310043603005'
+};
+
+/**
+ * Get role ID for a category
+ */
+function getCategoryRole(category) {
+  return CATEGORY_ROLES[category] || null;
 }
 
-async function setCategoryRole(guildId, category, roleId) {
-  return new Promise((resolve, reject) => {
-    db.run(
-      `INSERT INTO bot_category_roles (guild_id, category, role_id) VALUES (?, ?, ?) ON CONFLICT(guild_id, category) DO UPDATE SET role_id = excluded.role_id`,
-      [guildId, category, roleId],
-      function (err) { if (err) return reject(err); resolve(true); }
-    );
-  });
+/**
+ * Get all category roles
+ */
+function getAllCategoryRoles() {
+  return CATEGORY_ROLES;
 }
 
-async function getCategoryRole(guildId, category) {
-  return new Promise((resolve, reject) => {
-    db.get(`SELECT role_id FROM bot_category_roles WHERE guild_id = ? AND category = ?`, [guildId, category], (err, row) => {
-      if (err) return reject(err);
-      resolve(row ? row.role_id : null);
-    });
-  });
+/**
+ * Get support roles
+ */
+function getSupportRoles() {
+  return SUPPORT_ROLES;
 }
 
-async function listCategoryRoles(guildId) {
-  return new Promise((resolve, reject) => {
-    db.all(`SELECT category, role_id FROM bot_category_roles WHERE guild_id = ?`, [guildId], (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows || []);
-    });
-  });
+/**
+ * Legacy function - no longer creates roles
+ */
+async function ensureCategoryRoles() {
+  return {}; // Does nothing - roles are hardcoded
 }
 
-async function renameCategoryRole(guild, oldName, newName) {
-  // If you rename a category, also move mapping
-  await new Promise((resolve) => db.run(`UPDATE bot_category_roles SET category = ? WHERE guild_id = ? AND category = ?`, [newName, guild.id, oldName], () => resolve()));
-  return true;
+/**
+ * Legacy function - no longer sets roles
+ */
+async function setCategoryRole() {
+  return false; // Does nothing - roles are hardcoded
 }
 
-async function ensureSupportRoles(guild) {
-  const names = ['General Support', 'HR Support'];
-  let created = 0;
-  for (const name of names) {
-    let role = guild.roles.cache.find(r => r.name === name);
-    if (!role) {
-      try { role = await guild.roles.create({ name, mentionable: true, reason: 'Ensure support role exists' }); created++; } catch {}
-    } else if (!role.mentionable) {
-      try { await role.setMentionable(true, 'Allow auto-mention for support tickets'); } catch {}
-    }
-  }
-  return { created };
-}
-
-module.exports = { ensureCategoryRoles, renameCategoryRole, ensureSupportRoles };
+module.exports = {
+  getCategoryRole,
+  getAllCategoryRoles,
+  getSupportRoles,
+  ensureCategoryRoles,
+  setCategoryRole,
+  CATEGORY_ROLES,
+  SUPPORT_ROLES
+};

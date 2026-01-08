@@ -1,87 +1,129 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { BRAND_COLOR_HEX } = require('../../utils/branding');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { requireTier } = require('../../utils/permissions');
-const { ensureCategoryRoles } = require('../../utils/categoryRoleSync');
-const { seedDefaultsIfEmpty, listCategories } = require('../../utils/priceManager');
+const { BRAND_COLOR_HEX } = require('../../utils/branding');
+const priceManager = require('../../utils/priceManager');
 
-// Unified interactive /setorderinfo panel (interactive-only)
+// Hardcoded order categories with role IDs
+const ORDER_CATEGORIES = {
+  'Livery': '1457931808384483460',
+  'Uniform': '1457932046063370504',
+  'ELS': '1457931809202372799',
+  'Graphics': '1457931804928381034',
+  'Discord Server': '1457927114354327662',
+  'Discord Bot': '1457930518245937300'
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('setorderinfo')
-    .setDescription('Owner/Management: manage order info categories and items (interactive)')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    .setDescription('Manage order item prices and statuses')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addSubcommand(sub =>
+      sub.setName('setprice')
+        .setDescription('Set price for a category/item')
+        .addStringOption(o => o.setName('category').setDescription('Category name').setRequired(true).setAutocomplete(true))
+        .addStringOption(o => o.setName('item').setDescription('Item name').setRequired(true))
+        .addIntegerOption(o => o.setName('price').setDescription('Price in Robux').setRequired(true))
+    )
+    .addSubcommand(sub =>
+      sub.setName('setstatus')
+        .setDescription('Set status for a category/item')
+        .addStringOption(o => o.setName('category').setDescription('Category name').setRequired(true).setAutocomplete(true))
+        .addStringOption(o => o.setName('item').setDescription('Item name').setRequired(true))
+        .addStringOption(o => o.setName('status').setDescription('Status').setRequired(true)
+          .addChoices(
+            { name: 'Open', value: 'Open' },
+            { name: 'Closed', value: 'Closed' },
+            { name: 'Limited', value: 'Limited' }
+          ))
+    )
+    .addSubcommand(sub =>
+      sub.setName('view')
+        .setDescription('View all prices and statuses')
+    ),
+
+  async autocomplete(interaction) {
+    const focusedOption = interaction.options.getFocused(true);
+    if (focusedOption.name === 'category') {
+      const categories = Object.keys(ORDER_CATEGORIES);
+      const filtered = categories.filter(cat => cat.toLowerCase().includes(focusedOption.value.toLowerCase()));
+      await interaction.respond(filtered.slice(0, 25).map(cat => ({ name: cat, value: cat })));
+    }
+  },
 
   async execute(interaction) {
     const isOwner = interaction.guild && interaction.user.id === interaction.guild.ownerId;
     if (!isOwner && !requireTier(interaction.member, 'management')) {
-      // Reply ephemerally using flags
-      return interaction.reply({ content: '❌ You do not have permission.', flags: 64 });
+      return interaction.reply({ content: '❌ You need management permissions.', flags: 64 });
     }
 
-    let deferred = false;
-    try {
-      if (!interaction.deferred && !interaction.replied) {
-        await interaction.deferReply({ flags: 64 });
-        deferred = true;
+    const subcommand = interaction.options.getSubcommand();
+
+    if (subcommand === 'setprice') {
+      await interaction.deferReply({ ephemeral: true });
+      
+      const category = interaction.options.getString('category');
+      const item = interaction.options.getString('item');
+      const price = interaction.options.getInteger('price');
+
+      if (!ORDER_CATEGORIES[category]) {
+        return interaction.editReply({ content: `❌ Invalid category. Valid categories: ${Object.keys(ORDER_CATEGORIES).join(', ')}` });
       }
 
-      await seedDefaultsIfEmpty().catch(() => {});
-      try { await ensureCategoryRoles(interaction.guild); } catch {}
+      if (price < 0) {
+        return interaction.editReply({ content: '❌ Price must be 0 or greater.' });
+      }
 
-      const { ensureCanonicalCategoryNames } = require('../../utils/priceManager');
-      await ensureCanonicalCategoryNames().catch(()=>{});
-      const cats = await listCategories();
-      const { ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+      await priceManager.setPrice(category, item, price);
 
-      const actionSelect = new StringSelectMenuBuilder()
-        .setCustomId(`soi_action:${interaction.user.id}`)
-        .setPlaceholder('Choose an action')
-        .addOptions([
-          { label: 'List', value: 'list', description: 'List categories and items' },
-          { label: 'Add Category', value: 'add_category' },
-          { label: 'Rename Category', value: 'rename_category' },
-          { label: 'Remove Category', value: 'remove_category' },
-          { label: 'Add Item', value: 'add_item' },
-          { label: 'Rename Item', value: 'rename_item' },
-          { label: 'Remove Item', value: 'remove_item' },
-          { label: 'Set Price', value: 'set_price' },
-          { label: 'Set Status', value: 'set_status' },
-          { label: 'Sync Roles', value: 'sync_roles' }
-        ]);
+      return interaction.editReply({
+        content: `✅ Set price for **${category} > ${item}** to **${price} Robux**`
+      });
+    }
 
-      const catSelect = new StringSelectMenuBuilder()
-        .setCustomId(`soi_category:${interaction.user.id}`)
-        .setPlaceholder('Select a category (if needed)')
-        .addOptions((cats.length ? cats : ['No categories']).map(c => ({ label: c, value: c })));
+    if (subcommand === 'setstatus') {
+      await interaction.deferReply({ ephemeral: true });
+      
+      const category = interaction.options.getString('category');
+      const item = interaction.options.getString('item');
+      const status = interaction.options.getString('status');
 
-      const proceed = new ButtonBuilder().setCustomId(`soi_proceed:${interaction.user.id}:none:none`).setLabel('Proceed').setStyle(ButtonStyle.Primary);
-      const cancel = new ButtonBuilder().setCustomId(`soi_cancel:${interaction.user.id}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary);
+      if (!ORDER_CATEGORIES[category]) {
+        return interaction.editReply({ content: `❌ Invalid category. Valid categories: ${Object.keys(ORDER_CATEGORIES).join(', ')}` });
+      }
 
-      const panel = new EmbedBuilder().setTitle("King's Customs — Order Info Admin").setColor(BRAND_COLOR_HEX).setDescription('Select an action, optionally a category, then press Proceed.');
+      await priceManager.setStatus(category, item, status);
 
-      const payload = {
-        embeds: [panel],
-        components: [
-          new ActionRowBuilder().addComponents(actionSelect),
-          new ActionRowBuilder().addComponents(catSelect),
-          new ActionRowBuilder().addComponents(proceed, cancel)
-        ]
-      };
+      return interaction.editReply({
+        content: `✅ Set status for **${category} > ${item}** to **${status}**`
+      });
+    }
 
-      if (deferred || interaction.deferred) {
-        await interaction.editReply(payload);
+    if (subcommand === 'view') {
+      await interaction.deferReply({ ephemeral: true });
+      
+      const allData = await priceManager.getAllPrices();
+      
+      const embed = new EmbedBuilder()
+        .setTitle('Order Item Prices & Statuses')
+        .setColor(BRAND_COLOR_HEX)
+        .setTimestamp();
+
+      if (Object.keys(allData).length === 0) {
+        embed.setDescription('No items configured yet. Use `/setorderinfo setprice` to add items.');
       } else {
-        await interaction.reply({ ...payload, flags: 64 });
+        for (const [category, items] of Object.entries(allData)) {
+          const itemList = Object.entries(items)
+            .map(([itemName, data]) => `**${itemName}**: ${data.price || 0} Robux - ${data.status || 'Open'}`)
+            .join('\n');
+          
+          if (itemList) {
+            embed.addFields({ name: category, value: itemList, inline: false });
+          }
+        }
       }
 
-      return;
-    } catch (e) {
-      console.error('setorderinfo error:', e);
-      try {
-        if (deferred || interaction.deferred) return interaction.editReply({ content: '❌ Error processing request.' });
-        if (interaction.replied) return interaction.followUp({ content: '❌ Error processing request.', flags: 64 });
-        return interaction.reply({ content: '❌ Error processing request.', flags: 64 });
-      } catch {}
+      return interaction.editReply({ embeds: [embed] });
     }
   }
 };

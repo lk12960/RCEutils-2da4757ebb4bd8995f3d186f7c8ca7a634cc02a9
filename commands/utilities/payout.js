@@ -4,7 +4,6 @@ const { BRAND_COLOR_HEX } = require('../../utils/branding');
 const { getEligiblePaymentsForDesigner, createPayoutRequest } = require('../../utils/payoutManager');
 
 const APPROVAL_CHANNEL_ID = '1458206214528962751';
-const LOG_CHANNEL_ID = '1458207384982786282';
 const APPROVER_ROLE_ID = '1419399437997834301';
 
 module.exports = {

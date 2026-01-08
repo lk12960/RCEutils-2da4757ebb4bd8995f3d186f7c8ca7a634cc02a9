@@ -1,8 +1,51 @@
 const db = require('../database/db');
 
-function getEligiblePaymentsForDesigner(designerId) {
+/**
+ * Get the timestamp of the last completed payout for a designer
+ */
+function getLastPayoutTimestamp(designerId) {
   return new Promise((resolve, reject) => {
-    db.all(`SELECT order_id, price, roblox_username, reason FROM payments WHERE payee_id = ? AND status IN ('CONFIRMED','LOGGED') AND (payout_id IS NULL OR payout_id = 0)`, [String(designerId)], (err, rows) => {
+    db.get(
+      `SELECT decided_at FROM payouts WHERE designer_id = ? AND status = 'COMPLETED' ORDER BY decided_at DESC LIMIT 1`,
+      [String(designerId)],
+      (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.decided_at : null);
+      }
+    );
+  });
+}
+
+/**
+ * Get eligible payments for a designer
+ * Only includes orders confirmed AFTER their last completed payout
+ */
+async function getEligiblePaymentsForDesigner(designerId) {
+  const lastPayoutTime = await getLastPayoutTimestamp(designerId);
+  
+  return new Promise((resolve, reject) => {
+    let query, params;
+    
+    if (lastPayoutTime) {
+      // Only get orders confirmed after the last payout
+      query = `SELECT order_id, price, roblox_username, reason, confirmed_at FROM payments 
+               WHERE payee_id = ? 
+               AND status IN ('CONFIRMED','LOGGED') 
+               AND (payout_id IS NULL OR payout_id = 0)
+               AND confirmed_at > ?
+               ORDER BY confirmed_at ASC`;
+      params = [String(designerId), lastPayoutTime];
+    } else {
+      // No previous payout, get all eligible orders
+      query = `SELECT order_id, price, roblox_username, reason, confirmed_at FROM payments 
+               WHERE payee_id = ? 
+               AND status IN ('CONFIRMED','LOGGED') 
+               AND (payout_id IS NULL OR payout_id = 0)
+               ORDER BY confirmed_at ASC`;
+      params = [String(designerId)];
+    }
+    
+    db.all(query, params, (err, rows) => {
       if (err) return reject(err);
       resolve(rows || []);
     });
@@ -49,4 +92,4 @@ function decidePayout(id, status, decidedBy, reason = null) {
   });
 }
 
-module.exports = { getEligiblePaymentsForDesigner, createPayoutRequest, getPayoutById, decidePayout };
+module.exports = { getEligiblePaymentsForDesigner, createPayoutRequest, getPayoutById, decidePayout, getLastPayoutTimestamp };

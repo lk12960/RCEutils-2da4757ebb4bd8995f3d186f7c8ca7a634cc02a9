@@ -1,11 +1,5 @@
 const axios = require("axios");
 
-const ROBLOSECURITY = process.env.ROBLOSECURITY || "";
-
-if (!ROBLOSECURITY) {
-  console.warn("⚠️ ROBLOSECURITY environment variable is missing - ownership checks will fail!");
-}
-
 /**
  * Convert Roblox username → userId
  * @param {string} username
@@ -29,95 +23,82 @@ async function getUserId(username) {
     );
 
     if (res.status !== 200) {
-      console.error(`Username lookup failed for ${username} (${res.status})`);
+      console.error(`[Roblox] Username lookup failed (${res.status})`);
       return null;
     }
 
-    const json = res.data;
-    if (!json.data || json.data.length === 0) {
-      console.error(`Username not found: ${username}`);
+    if (!res.data?.data?.length) {
+      console.error(`[Roblox] Username not found: ${username}`);
       return null;
     }
 
-    return json.data[0].id;
+    return res.data.data[0].id;
   } catch (err) {
-    console.error(`Error looking up username ${username}:`, err.message);
+    console.error(`[Roblox] Username lookup error:`, err.message);
     return null;
   }
 }
 
 /**
- * Check if a user owns a specific asset (GamePass)
- * Uses Inventory v2 (AUTH REQUIRED)
+ * Check if a user owns a specific Game Pass
+ * Uses Roblox Inventory "is-owned" endpoint
  * @param {number} userId
  * @param {string|number} gamePassId
  * @returns {Promise<boolean>}
  */
 async function userOwnsGamePass(userId, gamePassId) {
-  let cursor = null;
-  let pages = 0;
-
   try {
-    while (pages < 10) { // Increased from 5 to 10 pages
-      const url = new URL(`https://inventory.roblox.com/v2/assets/${gamePassId}/owners`);
-      if (cursor) {
-        url.searchParams.set("cursor", cursor);
-      }
+    const url = `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${gamePassId}/is-owned`;
 
-      const res = await axios.get(url.toString(), {
-        headers: {
-          Cookie: `.ROBLOSECURITY=${ROBLOSECURITY}`,
-          Accept: "application/json",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        },
-        validateStatus: () => true
-      });
+    const res = await axios.get(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        Accept: "application/json"
+      },
+      validateStatus: () => true
+    });
 
-      if (res.status !== 200) {
-        console.error(`Inventory API failed for gamepass ${gamePassId} (${res.status})`);
-        return false;
-      }
-
-      const owners = Array.isArray(res.data?.data) ? res.data.data : [];
-      for (const entry of owners) {
-        // Check by userId (more reliable than username)
-        if (entry.owner?.id === userId) {
-          return true;
-        }
-      }
-
-      cursor = res.data?.nextPageCursor;
-      if (!cursor) break;
-
-      pages++;
+    if (res.status !== 200) {
+      console.error(
+        `[Roblox] is-owned check failed (${res.status}):`,
+        res.data
+      );
+      return false;
     }
 
-    return false;
+    // Response is literally: true or false
+    return res.data === true;
   } catch (err) {
-    console.error(`Error checking gamepass ownership:`, err.message);
+    console.error(`[Roblox] is-owned request error:`, err.message);
     return false;
   }
 }
 
 /**
- * Check game pass ownership using the Roblox Inventory API.
- * Combined check by username - converts username to userId first
- * @param {string|number} assetId
+ * Check game pass ownership by username
+ * @param {string|number} gamePassId
  * @param {string} username
  * @returns {Promise<boolean>}
  */
-async function checkGamePassOwnership(assetId, username) {
+async function checkGamePassOwnership(gamePassId, username) {
   const userId = await getUserId(username);
-  if (!userId) {
-    console.error(`Could not find userId for username: ${username}`);
-    return false;
-  }
+  if (!userId) return false;
 
-  console.log(`Checking if user ${username} (ID: ${userId}) owns gamepass ${assetId}...`);
-  const owns = await userOwnsGamePass(userId, assetId);
-  console.log(`Result: ${owns ? 'OWNS' : 'DOES NOT OWN'}`);
-  
+  console.log(
+    `[Roblox] Checking ownership: ${username} (ID ${userId}) → GamePass ${gamePassId}`
+  );
+
+  const owns = await userOwnsGamePass(userId, gamePassId);
+
+  console.log(
+    `[Roblox] Ownership result: ${owns ? "OWNS" : "DOES NOT OWN"}`
+  );
+
   return owns;
 }
 
-module.exports = { checkGamePassOwnership, getUserId, userOwnsGamePass };
+module.exports = {
+  getUserId,
+  userOwnsGamePass,
+  checkGamePassOwnership
+};

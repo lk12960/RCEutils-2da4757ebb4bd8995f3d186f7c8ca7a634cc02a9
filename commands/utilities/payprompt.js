@@ -21,8 +21,32 @@ module.exports = {
       return interaction.reply({ content: '❌ You do not have permission to use this command.', flags: 64 });
     }
 
+    // Must be run in an order ticket
+    const { getTicketMeta } = require('../../utils/ticketUtils');
+    let ticketMeta = null;
+    try {
+      ticketMeta = await getTicketMeta(interaction.channel);
+    } catch (err) {
+      // Not a ticket or failed to get meta
+    }
+
+    if (!ticketMeta || !ticketMeta.category) {
+      return interaction.reply({ 
+        content: '❌ This command must be run inside an **ORDER TICKET**.', 
+        flags: 64 
+      });
+    }
+
+    // Designer is whoever claimed the ticket
+    const designerId = ticketMeta.claimedBy;
+    if (!designerId) {
+      return interaction.reply({ 
+        content: '❌ This ticket must be **claimed** before creating a payment. Click the "Claim Ticket" button first.', 
+        flags: 64 
+      });
+    }
+
     const robloxUsername = interaction.options.getString('roblox_username', true).trim();
-    const toUser = interaction.options.getUser('to') || interaction.user;
     const price = interaction.options.getInteger('price', true);
     const reason = interaction.options.getString('reason', true).trim();
 
@@ -36,27 +60,25 @@ module.exports = {
 
     try {
       // Create or reuse a Game Pass slot and configure it for this payment
-      const payeeDiscord = toUser;
-      const { passId } = await ensureGamePassSlot(reason, price, `Payment to ${payeeDiscord.username} for ${reason}`);
+      const { passId } = await ensureGamePassSlot(reason, price, `Payment for ${reason}`);
       if (!passId) throw new Error('Missing passId from Open Cloud response');
 
-      // Generate order id & save mapping (PENDING)
-      // Allocate next sequential order number and persist
+      // Generate order id & save mapping (PENDING) with designer assigned
       const orderId = uuidv4();
-      const { orderNum } = await createPayment(orderId, passId, robloxUsername, price, reason);
+      const { orderNum } = await createPayment(orderId, passId, robloxUsername, price, reason, designerId);
 
       const embed = new EmbedBuilder()
         .setTitle("King's Customs — Payment Request")
         .setColor(BRAND_COLOR_HEX)
         .setDescription([
-          `Dear ${robloxUsername},`,
+          `Hey ${robloxUsername}!`,
           '',
-          `You have a payment request for ${price} Robux regarding: ${reason}.`,
-          `This payment is to compensate: ${payeeDiscord} (King's Customs).`,
+          `You need to pay ${price} Robux for: ${reason}`,
+          `Your designer: <@${designerId}>`,
           '',
-          `[Complete your payment on Roblox](${gamePassUrl(passId)}).`,
+          `[Click here to pay on Roblox](${gamePassUrl(passId)})`,
         ].join('\n'))
-        .setFooter({ text: `Order #${orderNum}` });
+        .setFooter({ text: `Order #${orderNum} | Designer: ${designerId}` });
 
       await interaction.editReply({ embeds: [embed] });
     } catch (err) {
