@@ -3,6 +3,29 @@ const { BRAND_COLOR_HEX } = require('./branding');
 const { listCategories } = require('./priceManager');
 const { getCategoryStatus } = require('./categoryStatusManager');
 const { getSetting } = require('./settingsManager');
+const db = require('../database/db');
+
+// Generate next ticket ID
+function generateTicketId() {
+  return new Promise((resolve, reject) => {
+    db.serialize(() => {
+      // Initialize counter if it doesn't exist
+      db.run(`INSERT OR IGNORE INTO ticket_counter (id, last_ticket_id) VALUES (1, 0)`, (err) => {
+        if (err) return reject(err);
+        
+        // Increment and get new ticket ID
+        db.run(`UPDATE ticket_counter SET last_ticket_id = last_ticket_id + 1 WHERE id = 1`, (err2) => {
+          if (err2) return reject(err2);
+          
+          db.get(`SELECT last_ticket_id FROM ticket_counter WHERE id = 1`, (err3, row) => {
+            if (err3) return reject(err3);
+            resolve(row.last_ticket_id);
+          });
+        });
+      });
+    });
+  });
+}
 
 async function resolveOrdersCategory(guild) {
   const id = await getSetting('orders_category_id');
@@ -92,6 +115,34 @@ function buildFormEmbed(form) {
     .setFooter({ text: BRAND_NAME });
 }
 
+function buildSupportWelcomeEmbed(user, category) {
+  const { BRAND_NAME } = require('./branding');
+  return new EmbedBuilder()
+    .setTitle(`${BRAND_NAME} — ${category}`)
+    .setColor(BRAND_COLOR_HEX)
+    .setDescription(
+      `Hello ${user}, and welcome to ${BRAND_NAME}!\n\n` +
+      `Please follow these rules while your ticket is open:\n` +
+      `• Be respectful and patient.\n` +
+      `• Do not ping staff unnecessarily.\n` +
+      `• Provide as much detail as possible.\n\n` +
+      `A staff member will be with you shortly.`
+    )
+    .setFooter({ text: BRAND_NAME });
+}
+
+function buildSupportFormEmbed(form) {
+  const { BRAND_NAME } = require('./branding');
+  return new EmbedBuilder()
+    .setTitle(`${BRAND_NAME} — Support Details`)
+    .setColor(BRAND_COLOR_HEX)
+    .addFields(
+      { name: 'Roblox Username', value: form.roblox || 'N/A', inline: true },
+      { name: 'Reason', value: form.details || 'N/A' }
+    )
+    .setFooter({ text: BRAND_NAME });
+}
+
 function buildOpenOrderModal(category) {
   const modal = new ModalBuilder().setCustomId(`ticket_open_modal:${category}`).setTitle(`Start ${category} Order`);
   modal.addComponents(
@@ -114,7 +165,8 @@ async function createTicketChannel(guild, opener, category) {
     parent: parent?.id,
     reason: `Ticket for ${opener.id} in category ${category}`,
   });
-  const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null });
+  const ticketId = await generateTicketId();
+  const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null, ticketId });
   try { await ch.setTopic(topic); } catch {}
   return ch;
 }
@@ -130,7 +182,8 @@ async function createTicketChannelWithParent(guild, opener, category, parentId) 
     parent: parentId || undefined,
     reason: `Support Ticket for ${opener.id} in category ${category}`,
   });
-  const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null });
+  const ticketId = await generateTicketId();
+  const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null, ticketId });
   try { await ch.setTopic(topic); } catch {}
   return ch;
 }
@@ -236,16 +289,25 @@ async function logAndCloseTicket(channel, payload) {
   const buf = Buffer.from(html, 'utf8');
 
   const { BRAND_NAME } = require('./branding');
+  const embedFields = [
+    { name: 'Opened By', value: `<@${payload.openerId}>`, inline: true },
+    { name: 'Category', value: payload.category, inline: true },
+    { name: 'Handler', value: payload.claimedBy ? `<@${payload.claimedBy}>` : 'Not Claimed', inline: true },
+    { name: 'Closed By', value: `<@${payload.closedBy}>`, inline: true }
+  ];
+  
+  if (payload.ticketId) {
+    embedFields.push({ name: 'Ticket ID', value: `#${payload.ticketId}`, inline: true });
+  }
+  
+  if (payload.reason) {
+    embedFields.push({ name: 'Reason', value: payload.reason });
+  }
+  
   const embed = new EmbedBuilder()
     .setTitle(`${BRAND_NAME} — Ticket Closed`)
     .setColor(BRAND_COLOR_HEX)
-    .addFields(
-      { name: 'Opened By', value: `<@${payload.openerId}>`, inline: true },
-      { name: 'Category', value: payload.category, inline: true },
-      { name: 'Handler', value: payload.claimedBy ? `<@${payload.claimedBy}>` : 'Not Claimed', inline: true },
-      { name: 'Closed By', value: `<@${payload.closedBy}>`, inline: true },
-      { name: 'Reason', value: payload.reason || 'N/A' }
-    )
+    .addFields(embedFields)
     .setFooter({ text: BRAND_NAME });
 
   // Build a gzip so Discord doesn't inline-preview the HTML; users get a clean download link
@@ -264,17 +326,26 @@ async function logAndCloseTicket(channel, payload) {
     const opener = await channel.client.users.fetch(payload.openerId).catch(() => null);
     if (opener) {
       const guildIcon = guild.iconURL({ size: 128, extension: 'png' }) || undefined;
+      const dmFields = [
+        { name: 'Opened By', value: `<@${payload.openerId}>`, inline: true },
+        { name: 'Closed By', value: `<@${payload.closedBy}>`, inline: true },
+        { name: 'Opened At', value: payload.openedAt ? new Date(payload.openedAt).toUTCString() : 'Unknown', inline: true },
+        { name: 'Claimed By', value: payload.claimedBy ? `<@${payload.claimedBy}>` : 'Not Claimed', inline: true }
+      ];
+      
+      if (payload.ticketId) {
+        dmFields.push({ name: 'Ticket ID', value: `#${payload.ticketId}`, inline: true });
+      }
+      
+      if (payload.reason) {
+        dmFields.push({ name: 'Reason', value: payload.reason });
+      }
+      
       const dmEmbed = new (require('discord.js').EmbedBuilder)()
         .setAuthor({ name: guild.name, iconURL: guildIcon })
         .setTitle('Ticket Closed')
         .setColor(BRAND_COLOR_HEX)
-        .addFields(
-          { name: 'Opened By', value: `<@${payload.openerId}>`, inline: true },
-          { name: 'Closed By', value: `<@${payload.closedBy}>`, inline: true },
-          { name: 'Opened At', value: payload.openedAt ? new Date(payload.openedAt).toUTCString() : 'Unknown', inline: true },
-          { name: 'Claimed By', value: payload.claimedBy ? `<@${payload.claimedBy}>` : 'Not Claimed', inline: true },
-          { name: 'Reason', value: payload.reason || 'N/A' }
-        )
+        .addFields(dmFields)
         .setFooter({ text: new Date().toUTCString() });
       await opener.send({ embeds: [dmEmbed] }).catch(()=>{});
     }
@@ -297,6 +368,8 @@ module.exports = {
   buildWelcomeEmbed,
   buildUserInfoEmbed,
   buildFormEmbed,
+  buildSupportWelcomeEmbed,
+  buildSupportFormEmbed,
   buildOpenOrderModal,
   createTicketChannel,
   logAndCloseTicket,

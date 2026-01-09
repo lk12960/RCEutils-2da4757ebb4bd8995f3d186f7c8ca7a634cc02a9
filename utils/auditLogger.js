@@ -15,6 +15,12 @@ const { EmbedBuilder, PermissionsBitField, AuditLogEvent, Colors } = require('di
 const settingsManager = require('./settingsManager');
 
 // ============================================================================
+// AUDIT LOGGING ENABLED/DISABLED FLAG
+// ============================================================================
+// Set to false to completely disable all audit logging
+const AUDIT_LOGGING_ENABLED = false;
+
+// ============================================================================
 // CONFIGURATION
 // ============================================================================
 
@@ -345,6 +351,11 @@ function getChanges(oldObj, newObj, fields) {
  * Send audit log to appropriate channel(s)
  */
 async function sendAuditLog(guild, options) {
+  // Early return if audit logging is disabled
+  if (!AUDIT_LOGGING_ENABLED) {
+    return;
+  }
+  
   try {
     const {
       category = LogCategories.SERVER,

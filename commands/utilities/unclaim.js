@@ -5,28 +5,30 @@ const { BRAND_COLOR_HEX, BRAND_NAME } = require('../../utils/branding');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('claim')
-    .setDescription('Claim this ticket (staff only)'),
+    .setName('unclaim')
+    .setDescription('Unclaim this ticket (staff only)'),
 
   async execute(interaction) {
     if (!requireTier(interaction.member, 'staff')) return interaction.reply({ content: '❌ Staff only.', ephemeral: true });
     const meta = await getTicketMeta(interaction.channel);
     if (!meta.category) return interaction.reply({ content: '❌ Not a ticket channel.', ephemeral: true });
     
-    if (meta.claimedBy) {
-      return interaction.reply({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
+    if (!meta.claimedBy) {
+      return interaction.reply({ content: '❌ This ticket is not currently claimed.', ephemeral: true });
     }
     
-    meta.claimedBy = interaction.user.id;
+    const previousClaimer = meta.claimedBy;
+    meta.claimedBy = null;
     try { await interaction.channel.setTopic(JSON.stringify(meta)); } catch {}
     
     const embed = new EmbedBuilder()
-      .setTitle('🎫 Ticket Claimed')
-      .setDescription(`This ticket has been claimed by ${interaction.user}.`)
+      .setTitle('🎫 Ticket Unclaimed')
+      .setDescription(`This ticket has been unclaimed and is now available for other staff members.`)
       .setColor(BRAND_COLOR_HEX)
       .addFields(
-        { name: 'Claimed By', value: `<@${interaction.user.id}>`, inline: true },
-        { name: 'Claimed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+        { name: 'Previously Claimed By', value: `<@${previousClaimer}>`, inline: true },
+        { name: 'Unclaimed By', value: `<@${interaction.user.id}>`, inline: true },
+        { name: 'Unclaimed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
       )
       .setFooter({ text: BRAND_NAME })
       .setTimestamp();

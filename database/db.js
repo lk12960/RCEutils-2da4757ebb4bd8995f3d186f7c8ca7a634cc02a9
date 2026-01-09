@@ -161,6 +161,14 @@ db.run(`
       updated_at TEXT NOT NULL
     )
   `);
+  
+  // Ticket ID counter
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ticket_counter (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      last_ticket_id INTEGER NOT NULL DEFAULT 0
+    )
+  `);
 });
 
 module.exports = db;

@@ -64,10 +64,12 @@ module.exports = {
       const { getSupportRoles } = require('../../utils/categoryRoleSync');
       const supportRoles = getSupportRoles();
       const roleId = supportRoles[category];
-      const { EmbedBuilder } = require('discord.js');
-      const welcome = new EmbedBuilder().setTitle(`Support — ${category}`).setColor(0x00A2FF);
-      const info = new EmbedBuilder().setTitle('User Information').addFields({ name: 'Roblox Username', value: roblox }).setColor(0x00A2FF);
-      const form = new EmbedBuilder().setTitle('Details').addFields({ name: 'Reason', value: details }).setColor(0x00A2FF);
+      
+      // Build embeds using the same structure as order tickets
+      const { buildSupportWelcomeEmbed, buildSupportFormEmbed } = require('../../utils/ticketUtils');
+      const welcome = buildSupportWelcomeEmbed(interaction.user, category);
+      const info = buildUserInfoEmbed(interaction.member || interaction.user);
+      const form = buildSupportFormEmbed({ roblox, details });
       const buttons = buildTicketButtons(ch.id);
       await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
       if (interaction.deferred || interaction.replied || deferred) return interaction.editReply({ content: `✅ Support ticket created: ${ch}` });

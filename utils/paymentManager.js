@@ -19,7 +19,9 @@ db.serialize(() => {
       logged_at TEXT,
       order_num INTEGER,
       payee_id TEXT,
-      payout_id INTEGER
+      payout_id INTEGER,
+      ticket_id TEXT,
+      voided INTEGER DEFAULT 0
     )
   `);
 
@@ -55,6 +57,24 @@ db.serialize(() => {
       db.run(`ALTER TABLE payments ADD COLUMN payout_id INTEGER`, (e) => {
         if (e) console.error('Failed to add payout_id:', e);
         else console.log('✅ Added payout_id column');
+      });
+    }
+    
+    // Add ticket_id if missing
+    if (!colNames.includes('ticket_id')) {
+      console.log('⚠️ Migrating payments table: Adding ticket_id column...');
+      db.run(`ALTER TABLE payments ADD COLUMN ticket_id TEXT`, (e) => {
+        if (e) console.error('Failed to add ticket_id:', e);
+        else console.log('✅ Added ticket_id column');
+      });
+    }
+    
+    // Add voided if missing
+    if (!colNames.includes('voided')) {
+      console.log('⚠️ Migrating payments table: Adding voided column...');
+      db.run(`ALTER TABLE payments ADD COLUMN voided INTEGER DEFAULT 0`, (e) => {
+        if (e) console.error('Failed to add voided:', e);
+        else console.log('✅ Added voided column');
       });
     }
   });
@@ -161,18 +181,18 @@ function markConfirmed(orderIdOrNumber) {
   });
 }
 
-function tryMarkLogged(orderIdOrNumber) {
+function tryMarkLogged(orderIdOrNumber, ticketId = null) {
   return new Promise((resolve, reject) => {
     const ts = new Date().toISOString();
     
     // Try by order_id first - update even if already logged (idempotent)
     db.run(
-      `UPDATE payments SET status = 'LOGGED', logged_at = ? WHERE order_id = ?`,
-      [ts, orderIdOrNumber],
+      `UPDATE payments SET status = 'LOGGED', logged_at = ?, ticket_id = ? WHERE order_id = ?`,
+      [ts, ticketId, orderIdOrNumber],
       function (err) {
         if (err) return reject(err);
         if (this.changes > 0) {
-          console.log(`[tryMarkLogged] Updated order_id ${orderIdOrNumber}`);
+          console.log(`[tryMarkLogged] Updated order_id ${orderIdOrNumber} with ticket_id ${ticketId}`);
           return resolve(true);
         }
         
@@ -180,11 +200,11 @@ function tryMarkLogged(orderIdOrNumber) {
         const num = parseInt(orderIdOrNumber, 10);
         if (!isNaN(num)) {
           db.run(
-            `UPDATE payments SET status = 'LOGGED', logged_at = ? WHERE order_num = ?`,
-            [ts, num],
+            `UPDATE payments SET status = 'LOGGED', logged_at = ?, ticket_id = ? WHERE order_num = ?`,
+            [ts, ticketId, num],
             function (e2) {
               if (e2) return reject(e2);
-              console.log(`[tryMarkLogged] Updated order_num ${num}, changes: ${this.changes}`);
+              console.log(`[tryMarkLogged] Updated order_num ${num} with ticket_id ${ticketId}, changes: ${this.changes}`);
               resolve(this.changes > 0);
             }
           );
@@ -197,4 +217,59 @@ function tryMarkLogged(orderIdOrNumber) {
   });
 }
 
-module.exports = { createPayment, getPayment, markConfirmed, tryMarkLogged };
+// Get all orders for a designer with optional date filter
+function getOrdersByDesigner(designerId, sinceDate = null) {
+  return new Promise((resolve, reject) => {
+    let query = `SELECT * FROM payments WHERE payee_id = ? AND status IN ('CONFIRMED', 'LOGGED') AND (voided IS NULL OR voided = 0)`;
+    const params = [String(designerId)];
+    
+    if (sinceDate) {
+      query += ` AND confirmed_at >= ?`;
+      params.push(sinceDate);
+    }
+    
+    query += ` ORDER BY confirmed_at DESC`;
+    
+    db.all(query, params, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows || []);
+    });
+  });
+}
+
+// Update order fields (designer, reason, voided status)
+function updateOrder(orderId, updates) {
+  return new Promise((resolve, reject) => {
+    const fields = [];
+    const params = [];
+    
+    if (updates.payee_id !== undefined) {
+      fields.push('payee_id = ?');
+      params.push(String(updates.payee_id));
+    }
+    
+    if (updates.reason !== undefined) {
+      fields.push('reason = ?');
+      params.push(String(updates.reason));
+    }
+    
+    if (updates.voided !== undefined) {
+      fields.push('voided = ?');
+      params.push(updates.voided ? 1 : 0);
+    }
+    
+    if (fields.length === 0) {
+      return resolve(false);
+    }
+    
+    params.push(orderId);
+    const query = `UPDATE payments SET ${fields.join(', ')} WHERE order_id = ?`;
+    
+    db.run(query, params, function (err) {
+      if (err) return reject(err);
+      resolve(this.changes > 0);
+    });
+  });
+}
+
+module.exports = { createPayment, getPayment, markConfirmed, tryMarkLogged, getOrdersByDesigner, updateOrder };

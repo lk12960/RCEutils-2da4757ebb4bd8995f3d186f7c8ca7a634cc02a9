@@ -18,32 +18,23 @@ function getLastPayoutTimestamp(designerId) {
 
 /**
  * Get eligible payments for a designer
- * Only includes orders confirmed AFTER their last completed payout
+ * Only includes orders from the current month that are not voided
  */
 async function getEligiblePaymentsForDesigner(designerId) {
-  const lastPayoutTime = await getLastPayoutTimestamp(designerId);
-  
   return new Promise((resolve, reject) => {
-    let query, params;
+    // Get the first day of the current month in UTC
+    const now = new Date();
+    const firstDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthStartISO = firstDayOfMonth.toISOString();
     
-    if (lastPayoutTime) {
-      // Only get orders confirmed after the last payout
-      query = `SELECT order_id, price, roblox_username, reason, confirmed_at FROM payments 
+    const query = `SELECT order_id, price, roblox_username, reason, confirmed_at, ticket_id FROM payments 
                WHERE payee_id = ? 
                AND status IN ('CONFIRMED','LOGGED') 
                AND (payout_id IS NULL OR payout_id = 0)
-               AND confirmed_at > ?
+               AND (voided IS NULL OR voided = 0)
+               AND confirmed_at >= ?
                ORDER BY confirmed_at ASC`;
-      params = [String(designerId), lastPayoutTime];
-    } else {
-      // No previous payout, get all eligible orders
-      query = `SELECT order_id, price, roblox_username, reason, confirmed_at FROM payments 
-               WHERE payee_id = ? 
-               AND status IN ('CONFIRMED','LOGGED') 
-               AND (payout_id IS NULL OR payout_id = 0)
-               ORDER BY confirmed_at ASC`;
-      params = [String(designerId)];
-    }
+    const params = [String(designerId), monthStartISO];
     
     db.all(query, params, (err, rows) => {
       if (err) return reject(err);
@@ -92,4 +83,25 @@ function decidePayout(id, status, decidedBy, reason = null) {
   });
 }
 
-module.exports = { getEligiblePaymentsForDesigner, createPayoutRequest, getPayoutById, decidePayout, getLastPayoutTimestamp };
+/**
+ * Check if a designer has requested a payout this month
+ */
+function hasPayoutThisMonth(designerId) {
+  return new Promise((resolve, reject) => {
+    const now = new Date();
+    const firstDayOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthStartISO = firstDayOfMonth.toISOString();
+    
+    db.get(
+      `SELECT COUNT(*) as count FROM payouts 
+       WHERE designer_id = ? AND requested_at >= ?`,
+      [String(designerId), monthStartISO],
+      (err, row) => {
+        if (err) return reject(err);
+        resolve(row.count > 0);
+      }
+    );
+  });
+}
+
+module.exports = { getEligiblePaymentsForDesigner, createPayoutRequest, getPayoutById, decidePayout, getLastPayoutTimestamp, hasPayoutThisMonth };

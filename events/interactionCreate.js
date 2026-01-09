@@ -256,23 +256,38 @@ module.exports = {
             return interaction.followUp({ content: `❌ Payment not confirmed yet. Current status: ${payment.status}`, ephemeral: true });
           }
           
+          // Get ticket ID from current channel if it's a ticket
+          let ticketId = null;
+          try {
+            const meta = await getTicketMeta(interaction.channel);
+            ticketId = meta.ticketId || null;
+          } catch {}
+          
           // Mark as logged (idempotent - won't fail if already logged)
-          await tryMarkLogged(orderId);
+          await tryMarkLogged(orderId, ticketId);
           
           // Hardcoded orders log channel
           const ORDERS_LOG_CHANNEL_ID = '1457531008835522741';
           const logChannel = interaction.client.channels.cache.get(ORDERS_LOG_CHANNEL_ID);
           if (!logChannel || !logChannel.isTextBased()) return interaction.followUp({ content: 'Orders log channel not available.', ephemeral: true });
           const { EmbedBuilder } = require('discord.js');
+          
+          const logFields = [
+            { name: 'Purchaser (Roblox)', value: payment.roblox_username, inline: true },
+            { name: 'Designer', value: isDiscordId ? `<@${designerId}>` : designerId, inline: true },
+            { name: 'Price', value: `${payment.price} Robux`, inline: true }
+          ];
+          
+          if (ticketId) {
+            logFields.push({ name: 'Ticket ID', value: `#${ticketId}`, inline: true });
+          }
+          
+          logFields.push({ name: 'Reason', value: payment.reason });
+          
           const logEmbed = new EmbedBuilder()
             .setTitle('Order Logged')
             .setColor(BRAND_COLOR_HEX)
-            .addFields(
-              { name: 'Purchaser (Roblox)', value: payment.roblox_username, inline: true },
-              { name: 'Designer', value: isDiscordId ? `<@${designerId}>` : designerId, inline: true },
-              { name: 'Price', value: `${payment.price} Robux`, inline: true },
-              { name: 'Reason', value: payment.reason }
-            )
+            .addFields(logFields)
             .setFooter({ text: `Order ID: ${orderId}` });
           await logChannel.send({ embeds: [logEmbed] });
           
@@ -294,6 +309,457 @@ module.exports = {
         } catch (e) {
           console.error('log_order button error:', e);
           return interaction.followUp({ content: '❌ Failed to log order.', ephemeral: true });
+        }
+      }
+      
+      // LOA: Request new LOA
+      if (interaction.customId === 'loa_request_new') {
+        try {
+          const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+          const modal = new ModalBuilder()
+            .setCustomId('loa_request_modal')
+            .setTitle('Request Leave of Absence');
+          
+          const durationInput = new TextInputBuilder()
+            .setCustomId('duration')
+            .setLabel('Duration (e.g., 1d, 2w, 3h)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Examples: 1d, 2w, 1h, 30m')
+            .setRequired(true);
+          
+          const reasonInput = new TextInputBuilder()
+            .setCustomId('reason')
+            .setLabel('Reason')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Why do you need this leave?')
+            .setRequired(true);
+          
+          modal.addComponents(
+            new ActionRowBuilder().addComponents(durationInput),
+            new ActionRowBuilder().addComponents(reasonInput)
+          );
+          
+          return interaction.showModal(modal);
+        } catch (error) {
+          console.error('[LOA] Error showing modal:', error);
+          return interaction.reply({ content: '❌ Failed to open modal.', ephemeral: true });
+        }
+      }
+      
+      // LOA: Request extension
+      if (interaction.customId.startsWith('loa_request_extension:')) {
+        const loaId = interaction.customId.split(':')[1];
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId(`loa_extension_modal:${loaId}`)
+          .setTitle('Request LOA Extension');
+        
+        const durationInput = new TextInputBuilder()
+          .setCustomId('duration')
+          .setLabel('Additional Duration (e.g., 1d, 2w, 3h)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Examples: 1d, 2w, 1h, 30m')
+          .setRequired(true);
+        
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason for Extension')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Why do you need to extend your leave?')
+          .setRequired(true);
+        
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(durationInput),
+          new ActionRowBuilder().addComponents(reasonInput)
+        );
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA: End early
+      if (interaction.customId.startsWith('loa_end_early:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const loaId = parseInt(interaction.customId.split(':')[1]);
+        
+        try {
+          const { getLOAById, endLOA, LOA_ROLE_ID, LOA_LOGS_CHANNEL_ID, formatDuration } = require('../utils/loaManager');
+          const loa = await getLOAById(loaId);
+          
+          if (!loa) {
+            return interaction.editReply({ content: '❌ LOA not found.' });
+          }
+          
+          if (loa.user_id !== interaction.user.id) {
+            return interaction.editReply({ content: '❌ This is not your LOA.' });
+          }
+          
+          if (loa.status !== 'ACTIVE') {
+            return interaction.editReply({ content: '❌ This LOA is not active.' });
+          }
+          
+          // End the LOA
+          await endLOA(loaId, true);
+          
+          // Remove LOA role
+          try {
+            await interaction.member.roles.remove(LOA_ROLE_ID);
+          } catch (e) {
+            console.error('Failed to remove LOA role:', e);
+          }
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const { EmbedBuilder } = require('discord.js');
+              const { BRAND_NAME } = require('../utils/branding');
+              const startTime = new Date(loa.start_time);
+              const originalEndTime = new Date(loa.end_time);
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA Ended Early`)
+                .setColor(0xFFA500)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Ended By', value: `<@${interaction.user.id}> (Self)`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Started', value: `<t:${Math.floor(startTime.getTime() / 1000)}:R>`, inline: true },
+                  { name: 'Was Scheduled to End', value: `<t:${Math.floor(originalEndTime.getTime() / 1000)}:R>`, inline: true },
+                  { name: 'Original Duration', value: formatDuration(loa.duration_ms), inline: true },
+                  { name: 'Reason', value: loa.reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM
+          try {
+            const { EmbedBuilder } = require('discord.js');
+            const { BRAND_NAME } = require('../utils/branding');
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Ended Early`)
+              .setDescription('You have ended your leave of absence early.')
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'LOA ID', value: String(loaId), inline: true },
+                { name: 'Ended At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+              )
+              .setFooter({ text: BRAND_NAME });
+            
+            await interaction.user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          await interaction.editReply({ content: '✅ Your leave has been ended early. You are now back on duty.' });
+        } catch (error) {
+          console.error('Error ending LOA early:', error);
+          await interaction.editReply({ content: '❌ Failed to end LOA. Please contact an administrator.' });
+        }
+      }
+      
+      // LOA: Proceed anyway (after payout warning)
+      if (interaction.customId.startsWith('loa_proceed_anyway:')) {
+        await interaction.deferUpdate();
+        const [, durationMsStr, timestampStr] = interaction.customId.split(':');
+        const durationMs = parseInt(durationMsStr);
+        
+        // Show the modal again to get the reason
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId(`loa_request_modal_proceed:${durationMs}`)
+          .setTitle('Request Leave of Absence');
+        
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Why do you need this leave?')
+          .setRequired(true);
+        
+        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA: Cancel request
+      if (interaction.customId === 'loa_cancel_request') {
+        await interaction.deferUpdate();
+        return interaction.editReply({ content: '❌ LOA request cancelled.', embeds: [], components: [] });
+      }
+      
+      // LOA: Approve request
+      if (interaction.customId.startsWith('loa_approve:')) {
+        await interaction.deferUpdate();
+        const loaId = parseInt(interaction.customId.split(':')[1]);
+        
+        try {
+          const { getLOAById, approveLOA, LOA_ROLE_ID, LOA_LOGS_CHANNEL_ID, formatDuration } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME, BRAND_COLOR_HEX } = require('../utils/branding');
+          
+          const loa = await getLOAById(loaId);
+          if (!loa) {
+            return interaction.followUp({ content: '❌ LOA not found.', ephemeral: true });
+          }
+          
+          // Approve the LOA
+          await approveLOA(loaId, interaction.user.id);
+          
+          // Assign LOA role
+          try {
+            const guild = interaction.guild;
+            const member = await guild.members.fetch(loa.user_id);
+            await member.roles.add(LOA_ROLE_ID);
+          } catch (e) {
+            console.error('Failed to assign LOA role:', e);
+          }
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const endTime = new Date(Date.now() + loa.duration_ms);
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA ${loa.is_extension ? 'Extension ' : ''}Approved`)
+                .setColor(0x00FF00)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Approved By', value: `<@${interaction.user.id}>`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Duration', value: formatDuration(loa.duration_ms), inline: true },
+                  { name: 'Ends', value: `<t:${Math.floor(endTime.getTime() / 1000)}:F>`, inline: true },
+                  { name: 'Reason', value: loa.reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to requester
+          try {
+            const user = await interaction.client.users.fetch(loa.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Approved`)
+              .setDescription('Your leave of absence request has been approved!')
+              .setColor(0x00FF00)
+              .addFields(
+                { name: 'Duration', value: formatDuration(loa.duration_ms), inline: true },
+                { name: 'Ends', value: `<t:${Math.floor((Date.now() + loa.duration_ms) / 1000)}:R>`, inline: true },
+                { name: 'Reason', value: loa.reason }
+              )
+              .setFooter({ text: `Approved by ${interaction.user.tag}` });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          // Update the request embed
+          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+            .setTitle(`${BRAND_NAME} — LOA Request ${loa.is_extension ? '(Extension) ' : ''}— APPROVED`)
+            .setColor(0x00FF00)
+            .addFields({ name: 'Approved By', value: `<@${interaction.user.id}>`, inline: true });
+          
+          await interaction.editReply({ embeds: [updatedEmbed], components: [] });
+        } catch (error) {
+          console.error('Error approving LOA:', error);
+          await interaction.followUp({ content: '❌ Failed to approve LOA.', ephemeral: true });
+        }
+      }
+      
+      // LOA Admin: Start LOA
+      if (interaction.customId === 'loa_admin_start' || interaction.customId.startsWith('loa_admin_start:')) {
+        const prefilledUserId = interaction.customId.includes(':') ? interaction.customId.split(':')[1] : '';
+        
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId('loa_admin_start_modal')
+          .setTitle('Start LOA (Admin)');
+        
+        const userInput = new TextInputBuilder()
+          .setCustomId('user_id')
+          .setLabel('User ID')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Discord User ID')
+          .setValue(prefilledUserId)
+          .setRequired(true);
+        
+        const durationInput = new TextInputBuilder()
+          .setCustomId('duration')
+          .setLabel('Duration (e.g., 1d, 2w, 3h)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Examples: 1d, 2w, 1h, 30m')
+          .setRequired(true);
+        
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('Reason')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+        
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(userInput),
+          new ActionRowBuilder().addComponents(durationInput),
+          new ActionRowBuilder().addComponents(reasonInput)
+        );
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA Admin: End LOA
+      if (interaction.customId === 'loa_admin_end') {
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId('loa_admin_end_modal')
+          .setTitle('End LOA (Admin)');
+        
+        const loaIdInput = new TextInputBuilder()
+          .setCustomId('loa_id')
+          .setLabel('LOA ID')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Enter LOA ID number')
+          .setRequired(true);
+        
+        modal.addComponents(new ActionRowBuilder().addComponents(loaIdInput));
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA Admin: Extend LOA
+      if (interaction.customId === 'loa_admin_extend') {
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId('loa_admin_extend_modal')
+          .setTitle('Extend LOA (Admin)');
+        
+        const loaIdInput = new TextInputBuilder()
+          .setCustomId('loa_id')
+          .setLabel('LOA ID')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Enter LOA ID number')
+          .setRequired(true);
+        
+        const durationInput = new TextInputBuilder()
+          .setCustomId('duration')
+          .setLabel('Additional Duration (e.g., 1d, 2w)')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Examples: 1d, 2w, 3h')
+          .setRequired(true);
+        
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(loaIdInput),
+          new ActionRowBuilder().addComponents(durationInput)
+        );
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA Admin: Edit Reason
+      if (interaction.customId === 'loa_admin_edit') {
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId('loa_admin_edit_modal')
+          .setTitle('Edit LOA Reason (Admin)');
+        
+        const loaIdInput = new TextInputBuilder()
+          .setCustomId('loa_id')
+          .setLabel('LOA ID')
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder('Enter LOA ID number')
+          .setRequired(true);
+        
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason')
+          .setLabel('New Reason')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+        
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(loaIdInput),
+          new ActionRowBuilder().addComponents(reasonInput)
+        );
+        
+        return interaction.showModal(modal);
+      }
+      
+      // LOA: Deny request
+      if (interaction.customId.startsWith('loa_deny:')) {
+        await interaction.deferUpdate();
+        const loaId = parseInt(interaction.customId.split(':')[1]);
+        
+        try {
+          const { getLOAById, denyLOA, LOA_LOGS_CHANNEL_ID, formatDuration } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME } = require('../utils/branding');
+          
+          const loa = await getLOAById(loaId);
+          if (!loa) {
+            return interaction.followUp({ content: '❌ LOA not found.', ephemeral: true });
+          }
+          
+          // Deny the LOA
+          await denyLOA(loaId, interaction.user.id);
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA ${loa.is_extension ? 'Extension ' : ''}Denied`)
+                .setColor(0xFF0000)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Denied By', value: `<@${interaction.user.id}>`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Requested Duration', value: formatDuration(loa.duration_ms), inline: true },
+                  { name: 'Reason', value: loa.reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to requester
+          try {
+            const user = await interaction.client.users.fetch(loa.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Denied`)
+              .setDescription('Your leave of absence request has been denied. If you have questions, please open an HR support ticket.')
+              .setColor(0xFF0000)
+              .addFields(
+                { name: 'Duration', value: formatDuration(loa.duration_ms), inline: true },
+                { name: 'Reason', value: loa.reason }
+              )
+              .setFooter({ text: `Denied by ${interaction.user.tag}` });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          // Update the request embed
+          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+            .setTitle(`${BRAND_NAME} — LOA Request ${loa.is_extension ? '(Extension) ' : ''}— DENIED`)
+            .setColor(0xFF0000)
+            .addFields({ name: 'Denied By', value: `<@${interaction.user.id}>`, inline: true });
+          
+          await interaction.editReply({ embeds: [updatedEmbed], components: [] });
+        } catch (error) {
+          console.error('Error denying LOA:', error);
+          await interaction.followUp({ content: '❌ Failed to deny LOA.', ephemeral: true });
         }
       }
     }
@@ -499,13 +965,47 @@ module.exports = {
         return interaction.editReply({ content: 'Cancelled.', components: [] });
       }
       if (interaction.customId.startsWith('ticket_claim:')) {
-        await interaction.deferReply({ ephemeral: false });
+        await interaction.deferUpdate();
         const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
+        if (interaction.channel.id !== channelId) return interaction.followUp({ content: 'Use this in the ticket channel.', ephemeral: true });
         const meta = await getTicketMeta(interaction.channel);
+        
+        // Check if already claimed
+        if (meta.claimedBy) {
+          return interaction.followUp({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
+        }
+        
         meta.claimedBy = interaction.user.id;
         try { await interaction.channel.setTopic(JSON.stringify(meta)); } catch {}
-        return interaction.editReply({ content: `✅ Ticket claimed by <@${interaction.user.id}>.` });
+        
+        // Update the message to remove the claim button
+        const newButtons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`ticket_close:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`ticket_close_reason:${channelId}`).setLabel('Close w/ Reason').setStyle(ButtonStyle.Danger),
+        );
+        
+        // Update the original message
+        try {
+          await interaction.message.edit({ components: [newButtons] });
+        } catch (e) {
+          console.error('Failed to update ticket buttons:', e);
+        }
+        
+        // Send a follow-up embed message
+        const { EmbedBuilder } = require('discord.js');
+        const { BRAND_COLOR_HEX, BRAND_NAME } = require('../utils/branding');
+        const embed = new EmbedBuilder()
+          .setTitle('🎫 Ticket Claimed')
+          .setDescription(`This ticket has been claimed by ${interaction.user}.`)
+          .setColor(BRAND_COLOR_HEX)
+          .addFields(
+            { name: 'Claimed By', value: `<@${interaction.user.id}>`, inline: true },
+            { name: 'Claimed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+          )
+          .setFooter({ text: BRAND_NAME })
+          .setTimestamp();
+        
+        return interaction.followUp({ embeds: [embed] });
       }
       if (interaction.customId.startsWith('ticket_close_reason:')) {
         const channelId = interaction.customId.split(':')[1];
@@ -532,7 +1032,7 @@ module.exports = {
         if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const meta = await getTicketMeta(interaction.channel);
         await interaction.editReply({ content: '✅ Closing ticket...' });
-        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null });
+        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null, ticketId: meta.ticketId });
       }
       if (interaction.customId === 'ticket_close_cancel') {
         await interaction.deferUpdate();
@@ -544,7 +1044,7 @@ module.exports = {
         if (interaction.channel.id !== chId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
         const meta = await getTicketMeta(interaction.channel);
         await interaction.editReply({ content: '✅ Closing ticket...' });
-        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: 'Closed by request' });
+        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: 'Closed by request', ticketId: meta.ticketId });
       }
       if (interaction.customId.startsWith('close_req_keep:')) {
         await interaction.deferUpdate();
@@ -704,9 +1204,12 @@ module.exports = {
         const { getSupportRoles } = require('../utils/categoryRoleSync');
         const supportRoles = getSupportRoles();
         const roleId = supportRoles[category];
-        const welcome = new (require('discord.js').EmbedBuilder)().setTitle(`Support — ${category}`).setColor(BRAND_COLOR_HEX);
-        const info = new (require('discord.js').EmbedBuilder)().setTitle('User Information').setColor(BRAND_COLOR_HEX).addFields({ name: 'Roblox Username', value: roblox });
-        const form = new (require('discord.js').EmbedBuilder)().setTitle('Support Details').setColor(BRAND_COLOR_HEX).addFields({ name: 'Reason', value: reason });
+        
+        // Build embeds using the same structure as order tickets
+        const { buildSupportWelcomeEmbed, buildUserInfoEmbed, buildSupportFormEmbed } = require('../utils/ticketUtils');
+        const welcome = buildSupportWelcomeEmbed(interaction.user, category);
+        const info = buildUserInfoEmbed(interaction.member || interaction.user);
+        const form = buildSupportFormEmbed({ roblox, details: reason });
         const buttons = buildTicketButtons(ch.id);
         await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
         if (interaction.deferred || interaction.replied) {
@@ -781,14 +1284,783 @@ module.exports = {
         if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
         const reason = interaction.fields.getTextInputValue('reason');
         const meta = await getTicketMeta(interaction.channel);
-        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason });
+        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason, ticketId: meta.ticketId });
+      }
+      
+      if (interaction.customId.startsWith('order_edit_designer_modal:')) {
+        await interaction.deferUpdate();
+        const orderId = interaction.customId.split(':')[1];
+        const newDesignerId = interaction.fields.getTextInputValue('designer_id').trim();
+        
+        // Validate that it's a valid user ID
+        if (!/^\d{17,19}$/.test(newDesignerId)) {
+          return interaction.followUp({ content: '❌ Invalid user ID format.', ephemeral: true });
+        }
+        
+        try {
+          const { getPayment, updateOrder } = require('../utils/paymentManager');
+          const order = await getPayment(orderId);
+          const oldDesignerId = order.payee_id;
+          
+          // Update the order
+          await updateOrder(orderId, { payee_id: newDesignerId });
+          
+          // Send DM to old designer if exists
+          if (oldDesignerId && oldDesignerId !== newDesignerId) {
+            try {
+              const oldDesigner = await interaction.client.users.fetch(oldDesignerId);
+              const { EmbedBuilder } = require('discord.js');
+              const dmEmbed = new EmbedBuilder()
+                .setTitle(`${require('../utils/branding').BRAND_NAME} — Order Reassigned`)
+                .setDescription(`An order has been reassigned from you to another designer.`)
+                .setColor(0xFFA500)
+                .addFields(
+                  { name: 'Order ID', value: orderId, inline: true },
+                  { name: 'Price', value: `${order.price} Robux`, inline: true },
+                  { name: 'Reason', value: order.reason || 'N/A' }
+                )
+                .setFooter({ text: `If you need more information, please open an HR support ticket.` });
+              
+              await oldDesigner.send({ embeds: [dmEmbed] }).catch(() => {});
+            } catch (e) {
+              console.error('Failed to send DM to old designer:', e);
+            }
+          }
+          
+          // Send DM to new designer
+          try {
+            const newDesigner = await interaction.client.users.fetch(newDesignerId);
+            const { EmbedBuilder } = require('discord.js');
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${require('../utils/branding').BRAND_NAME} — Order Assigned`)
+              .setDescription(`You have been assigned as the designer for an order.`)
+              .setColor(0x00FF00)
+              .addFields(
+                { name: 'Order ID', value: orderId, inline: true },
+                { name: 'Price', value: `${order.price} Robux`, inline: true },
+                { name: 'Roblox User', value: order.roblox_username, inline: true },
+                { name: 'Reason', value: order.reason || 'N/A' }
+              )
+              .setFooter({ text: `${require('../utils/branding').BRAND_NAME}` });
+            
+            await newDesigner.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM to new designer:', e);
+          }
+          
+          await interaction.followUp({ content: '✅ Designer updated successfully. DMs sent to affected designers.', ephemeral: true });
+        } catch (error) {
+          console.error('Error updating designer:', error);
+          await interaction.followUp({ content: '❌ Failed to update designer.', ephemeral: true });
+        }
+      }
+      
+      if (interaction.customId.startsWith('order_edit_reason_modal:')) {
+        await interaction.deferUpdate();
+        const orderId = interaction.customId.split(':')[1];
+        const newReason = interaction.fields.getTextInputValue('reason').trim();
+        
+        try {
+          const { getPayment, updateOrder } = require('../utils/paymentManager');
+          const order = await getPayment(orderId);
+          const oldReason = order.reason;
+          
+          // Update the order
+          await updateOrder(orderId, { reason: newReason });
+          
+          // Send DM to designer
+          if (order.payee_id) {
+            try {
+              const designer = await interaction.client.users.fetch(order.payee_id);
+              const { EmbedBuilder } = require('discord.js');
+              const dmEmbed = new EmbedBuilder()
+                .setTitle(`${require('../utils/branding').BRAND_NAME} — Order Reason Updated`)
+                .setDescription(`The reason for one of your orders has been updated by management.`)
+                .setColor(0xFFA500)
+                .addFields(
+                  { name: 'Order ID', value: orderId, inline: true },
+                  { name: 'Price', value: `${order.price} Robux`, inline: true },
+                  { name: 'Old Reason', value: oldReason || 'N/A' },
+                  { name: 'New Reason', value: newReason }
+                )
+                .setFooter({ text: `If you need more information, please open an HR support ticket.` });
+              
+              await designer.send({ embeds: [dmEmbed] }).catch(() => {});
+            } catch (e) {
+              console.error('Failed to send DM to designer:', e);
+            }
+          }
+          
+          await interaction.followUp({ content: '✅ Order reason updated successfully. DM sent to designer.', ephemeral: true });
+        } catch (error) {
+          console.error('Error updating reason:', error);
+          await interaction.followUp({ content: '❌ Failed to update reason.', ephemeral: true });
+        }
+      }
+      
+      // LOA: New request modal
+      if (interaction.customId === 'loa_request_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const durationStr = interaction.fields.getTextInputValue('duration').trim();
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        
+        try {
+          const { parseDuration, createLOARequest, getLOAHistory, formatDuration, LOA_REQUEST_CHANNEL_ID, MANAGEMENT_ROLE_ID } = require('../utils/loaManager');
+          
+          const durationMs = parseDuration(durationStr);
+          if (!durationMs) {
+            return interaction.editReply({ content: '❌ Invalid duration format. Use formats like: 1d, 2w, 3h, 30m' });
+          }
+          
+          // Check if LOA extends past end of month (for payout check)
+          const now = new Date();
+          const endDate = new Date(now.getTime() + durationMs);
+          const currentMonth = now.getUTCMonth();
+          const endMonth = endDate.getUTCMonth();
+          
+          if (endMonth !== currentMonth || endDate.getUTCFullYear() !== now.getUTCFullYear()) {
+            // Check if user is a designer with outstanding orders
+            const designerRoleIds = [
+              '1411100904949682237', // Designer role - update this to actual role ID
+              // Add other designer role IDs here
+            ];
+            
+            const hasDesignerRole = interaction.member.roles.cache.some(role => designerRoleIds.includes(role.id));
+            
+            if (hasDesignerRole) {
+              try {
+                // Check if they have a payout request for this month
+                const { hasPayoutThisMonth } = require('../utils/payoutManager');
+                const hasRequested = await hasPayoutThisMonth(interaction.user.id);
+                
+                if (!hasRequested) {
+                  // Check if they have outstanding orders
+                  const { getEligiblePaymentsForDesigner } = require('../utils/payoutManager');
+                  const eligibleOrders = await getEligiblePaymentsForDesigner(interaction.user.id);
+                  
+                  if (eligibleOrders.length > 0) {
+                    // They have orders but haven't requested payout
+                    const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+                    const warnEmbed = new EmbedBuilder()
+                      .setTitle('⚠️ Payout Reminder')
+                      .setDescription(
+                        `Your requested LOA extends into next month, and you have **${eligibleOrders.length} outstanding order(s)** available for payout.\n\n` +
+                        `**It is recommended that you request a payout before going on leave** to ensure you receive payment for this month's work.\n\n` +
+                        `You can still proceed with your LOA request, but please consider using \`/payout\` first.`
+                      )
+                      .setColor(0xFFA500)
+                      .addFields(
+                        { name: 'Outstanding Orders', value: String(eligibleOrders.length), inline: true },
+                        { name: 'LOA Duration', value: formatDuration(durationMs), inline: true }
+                      )
+                      .setFooter({ text: 'This is just a reminder - you can still proceed.' });
+                    
+                    const proceedBtn = new ButtonBuilder()
+                      .setCustomId(`loa_proceed_anyway:${durationMs}:${Date.now()}`)
+                      .setLabel('Proceed with LOA Request')
+                      .setStyle(ButtonStyle.Primary);
+                    
+                    const cancelBtn = new ButtonBuilder()
+                      .setCustomId('loa_cancel_request')
+                      .setLabel('Cancel')
+                      .setStyle(ButtonStyle.Secondary);
+                    
+                    const row = new ActionRowBuilder().addComponents(proceedBtn, cancelBtn);
+                    
+                    return interaction.editReply({ embeds: [warnEmbed], components: [row] });
+                  }
+                }
+              } catch (e) {
+                console.error('Error checking payout status:', e);
+                // Continue with request even if check fails
+              }
+            }
+          }
+          
+          // Create LOA request
+          const loaId = await createLOARequest(interaction.user.id, durationMs, reason);
+          
+          // Get history for context
+          const history = await getLOAHistory(interaction.user.id, 3);
+          
+          // Send to request channel
+          const requestChannel = interaction.client.channels.cache.get(LOA_REQUEST_CHANNEL_ID);
+          if (requestChannel && requestChannel.isTextBased()) {
+            const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+            const { BRAND_NAME } = require('../utils/branding');
+            
+            const embed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Request`)
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'Requester', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Duration', value: formatDuration(durationMs), inline: true },
+                { name: 'Ends', value: `<t:${Math.floor(endDate.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Reason', value: reason }
+              )
+              .setFooter({ text: `LOA ID: ${loaId}` })
+              .setTimestamp();
+            
+            if (history.length > 0) {
+              const historyText = history.map((loa, idx) => {
+                const end = new Date(loa.end_time);
+                const dur = formatDuration(loa.duration_ms);
+                const status = loa.status === 'ENDED_EARLY' ? 'Ended Early' : 'Completed';
+                return `${idx + 1}. Ended <t:${Math.floor(end.getTime() / 1000)}:R> (${dur}) - ${status}`;
+              }).join('\n');
+              
+              embed.addFields({ name: '📋 Recent LOA History', value: historyText });
+            }
+            
+            const approveBtn = new ButtonBuilder()
+              .setCustomId(`loa_approve:${loaId}`)
+              .setLabel('Approve')
+              .setStyle(ButtonStyle.Success);
+            
+            const denyBtn = new ButtonBuilder()
+              .setCustomId(`loa_deny:${loaId}`)
+              .setLabel('Deny')
+              .setStyle(ButtonStyle.Danger);
+            
+            const row = new ActionRowBuilder().addComponents(approveBtn, denyBtn);
+            
+            await requestChannel.send({ content: `<@&${MANAGEMENT_ROLE_ID}>`, embeds: [embed], components: [row] });
+          }
+          
+          await interaction.editReply({ content: '✅ Your LOA request has been submitted to management for approval.' });
+        } catch (error) {
+          console.error('Error creating LOA request:', error);
+          await interaction.editReply({ content: '❌ Failed to create LOA request. Please try again.' });
+        }
+      }
+      
+      // LOA: Proceed with request modal (after payout warning)
+      if (interaction.customId.startsWith('loa_request_modal_proceed:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const durationMs = parseInt(interaction.customId.split(':')[1]);
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        
+        try {
+          const { createLOARequest, getLOAHistory, formatDuration, LOA_REQUEST_CHANNEL_ID, MANAGEMENT_ROLE_ID } = require('../utils/loaManager');
+          
+          // Create LOA request
+          const loaId = await createLOARequest(interaction.user.id, durationMs, reason);
+          
+          // Get history for context
+          const history = await getLOAHistory(interaction.user.id, 3);
+          
+          const now = new Date();
+          const endDate = new Date(now.getTime() + durationMs);
+          
+          // Send to request channel
+          const requestChannel = interaction.client.channels.cache.get(LOA_REQUEST_CHANNEL_ID);
+          if (requestChannel && requestChannel.isTextBased()) {
+            const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+            const { BRAND_NAME } = require('../utils/branding');
+            
+            const embed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Request`)
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'Requester', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Duration', value: formatDuration(durationMs), inline: true },
+                { name: 'Ends', value: `<t:${Math.floor(endDate.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Reason', value: reason }
+              )
+              .setFooter({ text: `LOA ID: ${loaId}` })
+              .setTimestamp();
+            
+            if (history.length > 0) {
+              const historyText = history.map((loa, idx) => {
+                const end = new Date(loa.end_time);
+                const dur = formatDuration(loa.duration_ms);
+                const status = loa.status === 'ENDED_EARLY' ? 'Ended Early' : 'Completed';
+                return `${idx + 1}. Ended <t:${Math.floor(end.getTime() / 1000)}:R> (${dur}) - ${status}`;
+              }).join('\n');
+              
+              embed.addFields({ name: '📋 Recent LOA History', value: historyText });
+            }
+            
+            const approveBtn = new ButtonBuilder()
+              .setCustomId(`loa_approve:${loaId}`)
+              .setLabel('Approve')
+              .setStyle(ButtonStyle.Success);
+            
+            const denyBtn = new ButtonBuilder()
+              .setCustomId(`loa_deny:${loaId}`)
+              .setLabel('Deny')
+              .setStyle(ButtonStyle.Danger);
+            
+            const row = new ActionRowBuilder().addComponents(approveBtn, denyBtn);
+            
+            await requestChannel.send({ content: `<@&${MANAGEMENT_ROLE_ID}>`, embeds: [embed], components: [row] });
+          }
+          
+          await interaction.editReply({ content: '✅ Your LOA request has been submitted to management for approval.' });
+        } catch (error) {
+          console.error('Error creating LOA request:', error);
+          await interaction.editReply({ content: '❌ Failed to create LOA request. Please try again.' });
+        }
+      }
+      
+      // LOA: Extension request modal
+      if (interaction.customId.startsWith('loa_extension_modal:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const originalLoaId = parseInt(interaction.customId.split(':')[1]);
+        
+        const durationStr = interaction.fields.getTextInputValue('duration').trim();
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        
+        try {
+          const { parseDuration, createLOARequest, getLOAById, getLOAHistory, formatDuration, LOA_REQUEST_CHANNEL_ID, MANAGEMENT_ROLE_ID } = require('../utils/loaManager');
+          
+          const durationMs = parseDuration(durationStr);
+          if (!durationMs) {
+            return interaction.editReply({ content: '❌ Invalid duration format. Use formats like: 1d, 2w, 3h, 30m' });
+          }
+          
+          const originalLOA = await getLOAById(originalLoaId);
+          if (!originalLOA || originalLOA.user_id !== interaction.user.id) {
+            return interaction.editReply({ content: '❌ Original LOA not found or not yours.' });
+          }
+          
+          // Create extension request
+          const loaId = await createLOARequest(interaction.user.id, durationMs, reason, true, originalLoaId);
+          
+          // Get history for context
+          const history = await getLOAHistory(interaction.user.id, 3);
+          
+          // Send to request channel
+          const requestChannel = interaction.client.channels.cache.get(LOA_REQUEST_CHANNEL_ID);
+          if (requestChannel && requestChannel.isTextBased()) {
+            const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+            const { BRAND_NAME } = require('../utils/branding');
+            
+            const originalEndTime = new Date(originalLOA.end_time);
+            const newEndTime = new Date(originalEndTime.getTime() + durationMs);
+            
+            const embed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Extension Request`)
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'Requester', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Additional Duration', value: formatDuration(durationMs), inline: true },
+                { name: 'Original LOA ID', value: String(originalLoaId), inline: true },
+                { name: 'Current End Time', value: `<t:${Math.floor(originalEndTime.getTime() / 1000)}:R>`, inline: true },
+                { name: 'New End Time', value: `<t:${Math.floor(newEndTime.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Reason', value: reason }
+              )
+              .setFooter({ text: `Extension Request ID: ${loaId}` })
+              .setTimestamp();
+            
+            if (history.length > 0) {
+              const historyText = history.map((loa, idx) => {
+                const end = new Date(loa.end_time);
+                const dur = formatDuration(loa.duration_ms);
+                const status = loa.status === 'ENDED_EARLY' ? 'Ended Early' : 'Completed';
+                return `${idx + 1}. Ended <t:${Math.floor(end.getTime() / 1000)}:R> (${dur}) - ${status}`;
+              }).join('\n');
+              
+              embed.addFields({ name: '📋 Recent LOA History', value: historyText });
+            }
+            
+            const approveBtn = new ButtonBuilder()
+              .setCustomId(`loa_approve:${loaId}`)
+              .setLabel('Approve Extension')
+              .setStyle(ButtonStyle.Success);
+            
+            const denyBtn = new ButtonBuilder()
+              .setCustomId(`loa_deny:${loaId}`)
+              .setLabel('Deny Extension')
+              .setStyle(ButtonStyle.Danger);
+            
+            const row = new ActionRowBuilder().addComponents(approveBtn, denyBtn);
+            
+            await requestChannel.send({ content: `<@&${MANAGEMENT_ROLE_ID}>`, embeds: [embed], components: [row] });
+          }
+          
+          await interaction.editReply({ content: '✅ Your LOA extension request has been submitted to management for approval.' });
+        } catch (error) {
+          console.error('Error creating LOA extension request:', error);
+          await interaction.editReply({ content: '❌ Failed to create extension request. Please try again.' });
+        }
+      }
+      
+      // LOA Admin: Start LOA modal
+      if (interaction.customId === 'loa_admin_start_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const userId = interaction.fields.getTextInputValue('user_id').trim();
+        const durationStr = interaction.fields.getTextInputValue('duration').trim();
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        
+        try {
+          const { parseDuration, createLOARequest, approveLOA, formatDuration, LOA_ROLE_ID, LOA_LOGS_CHANNEL_ID } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME } = require('../utils/branding');
+          
+          const durationMs = parseDuration(durationStr);
+          if (!durationMs) {
+            return interaction.editReply({ content: '❌ Invalid duration format. Use formats like: 1d, 2w, 3h, 30m' });
+          }
+          
+          // Validate user ID
+          if (!/^\d{17,19}$/.test(userId)) {
+            return interaction.editReply({ content: '❌ Invalid user ID format.' });
+          }
+          
+          // Create and immediately approve the LOA
+          const loaId = await createLOARequest(userId, durationMs, reason);
+          await approveLOA(loaId, interaction.user.id);
+          
+          // Assign LOA role
+          try {
+            const member = await interaction.guild.members.fetch(userId);
+            await member.roles.add(LOA_ROLE_ID);
+          } catch (e) {
+            console.error('Failed to assign LOA role:', e);
+          }
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const endTime = new Date(Date.now() + durationMs);
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA Started (Admin)`)
+                .setColor(0x00FF00)
+                .addFields(
+                  { name: 'User', value: `<@${userId}>`, inline: true },
+                  { name: 'Started By', value: `<@${interaction.user.id}> (Admin)`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Duration', value: formatDuration(durationMs), inline: true },
+                  { name: 'Ends', value: `<t:${Math.floor(endTime.getTime() / 1000)}:F>`, inline: true },
+                  { name: 'Reason', value: reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to user
+          try {
+            const user = await interaction.client.users.fetch(userId);
+            const endTime = new Date(Date.now() + durationMs);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Started`)
+              .setDescription('A leave of absence has been started for you by management.')
+              .setColor(0x00FF00)
+              .addFields(
+                { name: 'Duration', value: formatDuration(durationMs), inline: true },
+                { name: 'Ends', value: `<t:${Math.floor(endTime.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Reason', value: reason }
+              )
+              .setFooter({ text: `Started by ${interaction.user.tag}` });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          await interaction.editReply({ 
+            content: `✅ LOA started for <@${userId}>.\n**LOA ID:** ${loaId}\n**Duration:** ${formatDuration(durationMs)}` 
+          });
+        } catch (error) {
+          console.error('Error starting LOA:', error);
+          await interaction.editReply({ content: '❌ Failed to start LOA. Please try again.' });
+        }
+      }
+      
+      // LOA Admin: End LOA modal
+      if (interaction.customId === 'loa_admin_end_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const loaIdStr = interaction.fields.getTextInputValue('loa_id').trim();
+        const loaId = parseInt(loaIdStr);
+        
+        if (isNaN(loaId)) {
+          return interaction.editReply({ content: '❌ Invalid LOA ID. Must be a number.' });
+        }
+        
+        try {
+          const { getLOAById, endLOA, formatDuration, LOA_ROLE_ID, LOA_LOGS_CHANNEL_ID } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME } = require('../utils/branding');
+          
+          const loa = await getLOAById(loaId);
+          if (!loa) {
+            return interaction.editReply({ content: '❌ LOA not found.' });
+          }
+          
+          if (loa.status !== 'ACTIVE') {
+            return interaction.editReply({ content: `❌ This LOA is not active (current status: ${loa.status}).` });
+          }
+          
+          // End the LOA
+          await endLOA(loaId, true);
+          
+          // Remove LOA role
+          try {
+            const member = await interaction.guild.members.fetch(loa.user_id);
+            await member.roles.remove(LOA_ROLE_ID);
+          } catch (e) {
+            console.error('Failed to remove LOA role:', e);
+          }
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const startTime = new Date(loa.start_time);
+              const originalEndTime = new Date(loa.end_time);
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA Ended (Admin)`)
+                .setColor(0xFFA500)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Ended By', value: `<@${interaction.user.id}> (Admin)`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Started', value: `<t:${Math.floor(startTime.getTime() / 1000)}:R>`, inline: true },
+                  { name: 'Was Scheduled to End', value: `<t:${Math.floor(originalEndTime.getTime() / 1000)}:R>`, inline: true },
+                  { name: 'Original Duration', value: formatDuration(loa.duration_ms), inline: true },
+                  { name: 'Reason', value: loa.reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to user
+          try {
+            const user = await interaction.client.users.fetch(loa.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Ended`)
+              .setDescription('Your leave of absence has been ended by management.')
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'LOA ID', value: String(loaId), inline: true },
+                { name: 'Original Duration', value: formatDuration(loa.duration_ms), inline: true },
+                { name: 'Ended By', value: interaction.user.tag }
+              )
+              .setFooter({ text: 'If you have questions, please open an HR support ticket.' });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          await interaction.editReply({ content: `✅ LOA #${loaId} has been ended for <@${loa.user_id}>.` });
+        } catch (error) {
+          console.error('Error ending LOA:', error);
+          await interaction.editReply({ content: '❌ Failed to end LOA. Please try again.' });
+        }
+      }
+      
+      // LOA Admin: Extend LOA modal
+      if (interaction.customId === 'loa_admin_extend_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const loaIdStr = interaction.fields.getTextInputValue('loa_id').trim();
+        const durationStr = interaction.fields.getTextInputValue('duration').trim();
+        const loaId = parseInt(loaIdStr);
+        
+        if (isNaN(loaId)) {
+          return interaction.editReply({ content: '❌ Invalid LOA ID. Must be a number.' });
+        }
+        
+        try {
+          const { getLOAById, extendLOA, parseDuration, formatDuration, LOA_LOGS_CHANNEL_ID } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME } = require('../utils/branding');
+          
+          const loa = await getLOAById(loaId);
+          if (!loa) {
+            return interaction.editReply({ content: '❌ LOA not found.' });
+          }
+          
+          if (loa.status !== 'ACTIVE') {
+            return interaction.editReply({ content: `❌ This LOA is not active (current status: ${loa.status}).` });
+          }
+          
+          const durationMs = parseDuration(durationStr);
+          if (!durationMs) {
+            return interaction.editReply({ content: '❌ Invalid duration format. Use formats like: 1d, 2w, 3h, 30m' });
+          }
+          
+          const oldEndTime = new Date(loa.end_time);
+          
+          // Extend the LOA
+          await extendLOA(loaId, durationMs);
+          
+          // Get updated LOA
+          const updatedLOA = await getLOAById(loaId);
+          const newEndTime = new Date(updatedLOA.end_time);
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA Extended (Admin)`)
+                .setColor(0x00FF00)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Extended By', value: `<@${interaction.user.id}> (Admin)`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Additional Duration', value: formatDuration(durationMs), inline: true },
+                  { name: 'Previous End Time', value: `<t:${Math.floor(oldEndTime.getTime() / 1000)}:F>`, inline: true },
+                  { name: 'New End Time', value: `<t:${Math.floor(newEndTime.getTime() / 1000)}:F>`, inline: true },
+                  { name: 'Reason', value: loa.reason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to user
+          try {
+            const user = await interaction.client.users.fetch(loa.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Extended`)
+              .setDescription('Your leave of absence has been extended by management.')
+              .setColor(0x00FF00)
+              .addFields(
+                { name: 'LOA ID', value: String(loaId), inline: true },
+                { name: 'Additional Duration', value: formatDuration(durationMs), inline: true },
+                { name: 'New End Time', value: `<t:${Math.floor(newEndTime.getTime() / 1000)}:R>`, inline: true },
+                { name: 'Extended By', value: interaction.user.tag }
+              )
+              .setFooter({ text: BRAND_NAME });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          await interaction.editReply({ 
+            content: `✅ LOA #${loaId} has been extended by ${formatDuration(durationMs)}.\n**New end time:** <t:${Math.floor(newEndTime.getTime() / 1000)}:F>` 
+          });
+        } catch (error) {
+          console.error('Error extending LOA:', error);
+          await interaction.editReply({ content: '❌ Failed to extend LOA. Please try again.' });
+        }
+      }
+      
+      // LOA Admin: Edit Reason modal
+      if (interaction.customId === 'loa_admin_edit_modal') {
+        await interaction.deferReply({ ephemeral: true });
+        
+        const loaIdStr = interaction.fields.getTextInputValue('loa_id').trim();
+        const newReason = interaction.fields.getTextInputValue('reason').trim();
+        const loaId = parseInt(loaIdStr);
+        
+        if (isNaN(loaId)) {
+          return interaction.editReply({ content: '❌ Invalid LOA ID. Must be a number.' });
+        }
+        
+        try {
+          const { getLOAById, updateLOAReason, LOA_LOGS_CHANNEL_ID } = require('../utils/loaManager');
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_NAME } = require('../utils/branding');
+          
+          const loa = await getLOAById(loaId);
+          if (!loa) {
+            return interaction.editReply({ content: '❌ LOA not found.' });
+          }
+          
+          const oldReason = loa.reason;
+          
+          // Update the reason
+          await updateLOAReason(loaId, newReason, interaction.user.id);
+          
+          // Send log to LOA logs channel
+          try {
+            const logsChannel = interaction.client.channels.cache.get(LOA_LOGS_CHANNEL_ID);
+            if (logsChannel && logsChannel.isTextBased()) {
+              const logEmbed = new EmbedBuilder()
+                .setTitle(`${BRAND_NAME} — LOA Reason Edited (Admin)`)
+                .setColor(0xFFA500)
+                .addFields(
+                  { name: 'User', value: `<@${loa.user_id}>`, inline: true },
+                  { name: 'Edited By', value: `<@${interaction.user.id}> (Admin)`, inline: true },
+                  { name: 'LOA ID', value: String(loaId), inline: true },
+                  { name: 'Status', value: loa.status, inline: true },
+                  { name: 'Old Reason', value: oldReason },
+                  { name: 'New Reason', value: newReason }
+                )
+                .setFooter({ text: BRAND_NAME })
+                .setTimestamp();
+              
+              await logsChannel.send({ embeds: [logEmbed] });
+            }
+          } catch (e) {
+            console.error('Failed to send LOA log:', e);
+          }
+          
+          // Send DM to user
+          try {
+            const user = await interaction.client.users.fetch(loa.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle(`${BRAND_NAME} — LOA Reason Updated`)
+              .setDescription('The reason for your leave of absence has been updated by management.')
+              .setColor(0xFFA500)
+              .addFields(
+                { name: 'LOA ID', value: String(loaId), inline: true },
+                { name: 'Status', value: loa.status, inline: true },
+                { name: 'Old Reason', value: oldReason },
+                { name: 'New Reason', value: newReason },
+                { name: 'Updated By', value: interaction.user.tag }
+              )
+              .setFooter({ text: 'If you have questions, please open an HR support ticket.' });
+            
+            await user.send({ embeds: [dmEmbed] }).catch(() => {});
+          } catch (e) {
+            console.error('Failed to send DM:', e);
+          }
+          
+          await interaction.editReply({ 
+            content: `✅ LOA #${loaId} reason has been updated.\n**Old:** ${oldReason}\n**New:** ${newReason}` 
+          });
+        } catch (error) {
+          console.error('Error editing LOA reason:', error);
+          await interaction.editReply({ content: '❌ Failed to edit LOA reason. Please try again.' });
+        }
       }
     }
 
     // Catch-all handler for buttons created in embed dashboard
-    if (interaction.isButton()) {
+    if (interaction.isButton() && !interaction.replied && !interaction.deferred) {
       // If we reach here, the button wasn't handled by any specific handler above
       const customId = interaction.customId;
+      
+      // Skip if this is a known button handled above (these may show modals which don't set replied/deferred flags)
+      const knownButtons = [
+        'catrole_save', 'payout_approve', 'payout_deny', 'log_order',
+        'loa_request_new', 'loa_request_extension', 'loa_end_early', 'loa_proceed_anyway', 'loa_cancel_request',
+        'loa_approve', 'loa_deny', 'loa_admin_start', 'loa_admin_end', 'loa_admin_extend', 'loa_admin_edit',
+        'catrole_role', 'catrole_select', 'soi_proceed', 'soi_page',
+        'ticket_delay_confirm', 'ticket_delay_cancel', 'ticket_claim', 'ticket_close_reason', 'ticket_close',
+        'ticket_close_confirm', 'ticket_close_cancel', 'close_req_confirm', 'close_req_keep',
+        'order_edit_void', 'order_edit_designer', 'order_edit_reason'
+      ];
+      
+      const isKnownButton = knownButtons.some(btn => customId === btn || customId.startsWith(btn + ':'));
+      if (isKnownButton) {
+        return; // Already handled above
+      }
       
       // Smart action parser - supports multiple patterns
       // Format: "reply:Your message here" or "template:template_id" or "em:send_template:id"

@@ -37,7 +37,7 @@ module.exports = {
           try {
             const fresh = await getTicketMeta(interaction.channel);
             // Attempt to close if not already deleted
-            await logAndCloseTicket(interaction.channel, { category: fresh.category, openerId: fresh.openerId, claimedBy: fresh.claimedBy, closedBy: interaction.user.id, reason: 'Auto-closed after delay' });
+            await logAndCloseTicket(interaction.channel, { category: fresh.category, openerId: fresh.openerId, claimedBy: fresh.claimedBy, closedBy: interaction.user.id, reason: 'Auto-closed after delay', ticketId: fresh.ticketId });
           } catch {}
           clearChannelTimer(interaction.channel.id);
         }, delayMs);
