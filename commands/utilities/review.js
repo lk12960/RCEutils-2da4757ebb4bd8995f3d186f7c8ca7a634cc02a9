@@ -32,6 +32,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Check if user has the buyer role
+    const BUYER_ROLE_ID = '1459287123495485551';
+    if (!interaction.member.roles.cache.has(BUYER_ROLE_ID)) {
+      return interaction.reply({ 
+        content: '❌ You must have purchased from King\'s Customs to submit a review. This role is automatically assigned when your order is logged.', 
+        ephemeral: true 
+      });
+    }
+
     const stars = interaction.options.getInteger('stars', true);
     const designer = interaction.options.getUser('designer', true);
     const reason = interaction.options.getString('reason', true);

@@ -68,17 +68,16 @@ module.exports = {
       const { orderNum } = await createPayment(orderId, passId, robloxUsername, price, reason, designerId);
 
       const embed = new EmbedBuilder()
-        .setTitle("King's Customs — Payment Request")
         .setColor(BRAND_COLOR_HEX)
         .setDescription([
-          `Hey ${robloxUsername}!`,
+          'Your order is ready to be delivered.',
           '',
-          `You need to pay ${price} Robux for: ${reason}`,
-          `Your designer: <@${designerId}>`,
+          'To receive your items, please complete the required payment using the assigned Roblox Game Pass. Once payment is detected, delivery will be completed automatically.',
           '',
           `[Click here to pay on Roblox](${gamePassUrl(passId)})`,
         ].join('\n'))
-        .setFooter({ text: `Order #${orderNum} | Designer: ${designerId}` });
+        .setImage('https://media.discordapp.net/attachments/1411101283389149294/1459270064464335055/TinyBanner.png?ex=6962aaa7&is=69615927&hm=4a591015778b3f562bc155b0a4126daf2a99778154f3b51721249f0d119700fb&=&format=webp&quality=lossless')
+        .setFooter({ text: `Order #${orderNum}` });
 
       await interaction.editReply({ embeds: [embed] });
     } catch (err) {

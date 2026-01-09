@@ -104,14 +104,20 @@ function buildUserInfoEmbed(memberOrUser) {
 
 function buildFormEmbed(form) {
   const { BRAND_NAME } = require('./branding');
+  const fields = [];
+  
+  // Only add Roblox Username field if it exists
+  if (form.roblox) {
+    fields.push({ name: 'Roblox Username', value: form.roblox, inline: true });
+  }
+  
+  fields.push({ name: 'Needed By', value: form.deadline || 'N/A', inline: true });
+  fields.push({ name: 'What is needed', value: form.details || 'N/A' });
+  
   return new EmbedBuilder()
     .setTitle(`${BRAND_NAME} — Order Details`)
     .setColor(BRAND_COLOR_HEX)
-    .addFields(
-      { name: 'Roblox Username', value: form.roblox || 'N/A', inline: true },
-      { name: 'Needed By', value: form.deadline || 'N/A', inline: true },
-      { name: 'What is needed', value: form.details || 'N/A' }
-    )
+    .addFields(fields)
     .setFooter({ text: BRAND_NAME });
 }
 
@@ -133,20 +139,25 @@ function buildSupportWelcomeEmbed(user, category) {
 
 function buildSupportFormEmbed(form) {
   const { BRAND_NAME } = require('./branding');
+  const fields = [];
+  
+  // Only add Roblox Username field if it exists
+  if (form.roblox) {
+    fields.push({ name: 'Roblox Username', value: form.roblox, inline: true });
+  }
+  
+  fields.push({ name: 'Reason', value: form.details || 'N/A' });
+  
   return new EmbedBuilder()
     .setTitle(`${BRAND_NAME} — Support Details`)
     .setColor(BRAND_COLOR_HEX)
-    .addFields(
-      { name: 'Roblox Username', value: form.roblox || 'N/A', inline: true },
-      { name: 'Reason', value: form.details || 'N/A' }
-    )
+    .addFields(fields)
     .setFooter({ text: BRAND_NAME });
 }
 
 function buildOpenOrderModal(category) {
   const modal = new ModalBuilder().setCustomId(`ticket_open_modal:${category}`).setTitle(`Start ${category} Order`);
   modal.addComponents(
-    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('roblox').setLabel('Roblox Username').setStyle(TextInputStyle.Short).setRequired(true)),
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('details').setLabel('What do you need?').setStyle(TextInputStyle.Paragraph).setRequired(true)),
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('deadline').setLabel('When do you need it by?').setStyle(TextInputStyle.Short).setRequired(true)),
   );
@@ -154,17 +165,52 @@ function buildOpenOrderModal(category) {
 }
 
 async function createTicketChannel(guild, opener, category) {
-  const parent = await resolveOrdersCategory(guild);
+  // Hardcoded Orders category ID
+  const ORDERS_CATEGORY_ID = '1457527791602896947';
+  const DESIGN_TEAM_ROLE_ID = '1419090298730184776';
+  const QUALITY_CONTROL_ROLE_ID = '1457926662485442600';
+  const MANAGEMENT_ROLE_1_ID = process.env.MANAGEMENT_ROLE_1_ID || '1411100904949682236';
+  const MANAGEMENT_ROLE_2_ID = process.env.MANAGEMENT_ROLE_2_ID || '1419399437997834301';
+  
   const base = `order-${category.toLowerCase().replace(/\s+/g, '-')}-${opener.user ? opener.user.username : opener.username}`
     .replace(/[^a-z0-9-]/gi, '-')
     .replace(/-{2,}/g, '-')
     .toLowerCase();
   const name = base.slice(0, 90);
+  
+  // Create channel with permissions
   const ch = await guild.channels.create({
     name,
-    parent: parent?.id,
-    reason: `Ticket for ${opener.id} in category ${category}`,
+    parent: ORDERS_CATEGORY_ID,
+    reason: `Order ticket for ${opener.id} in category ${category}`,
+    permissionOverwrites: [
+      {
+        id: guild.id, // @everyone
+        deny: [PermissionFlagsBits.ViewChannel]
+      },
+      {
+        id: opener.id, // Opener
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+      },
+      {
+        id: DESIGN_TEAM_ROLE_ID, // Design Team
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+      },
+      {
+        id: QUALITY_CONTROL_ROLE_ID, // Quality Control
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+      },
+      {
+        id: MANAGEMENT_ROLE_1_ID, // Management 1
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
+      },
+      {
+        id: MANAGEMENT_ROLE_2_ID, // Management 2
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
+      }
+    ]
   });
+  
   const ticketId = await generateTicketId();
   const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null, ticketId });
   try { await ch.setTopic(topic); } catch {}
@@ -172,16 +218,59 @@ async function createTicketChannel(guild, opener, category) {
 }
 
 async function createTicketChannelWithParent(guild, opener, category, parentId) {
+  // Hardcoded Support category IDs
+  const GENERAL_SUPPORT_CATEGORY_ID = '1458914807003742279';
+  const HR_SUPPORT_CATEGORY_ID = '1458914764490277073';
+  const GENERAL_SUPPORT_ROLE_ID = '1457921599322722449';
+  const MANAGEMENT_ROLE_1_ID = process.env.MANAGEMENT_ROLE_1_ID || '1411100904949682236';
+  const MANAGEMENT_ROLE_2_ID = process.env.MANAGEMENT_ROLE_2_ID || '1419399437997834301';
+  
   const base = `support-${category.toLowerCase().replace(/\s+/g, '-')}-${opener.user ? opener.user.username : opener.username}`
     .replace(/[^a-z0-9-]/gi, '-')
     .replace(/-{2,}/g, '-')
     .toLowerCase();
   const name = base.slice(0, 90);
+  
+  // Determine which category and permissions based on ticket type
+  let categoryId;
+  let permissionOverwrites = [
+    {
+      id: guild.id, // @everyone
+      deny: [PermissionFlagsBits.ViewChannel]
+    },
+    {
+      id: opener.id, // Opener
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+    },
+    {
+      id: MANAGEMENT_ROLE_1_ID, // Management 1
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
+    },
+    {
+      id: MANAGEMENT_ROLE_2_ID, // Management 2
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
+    }
+  ];
+  
+  if (category === 'General Support') {
+    categoryId = GENERAL_SUPPORT_CATEGORY_ID;
+    // Add General Support role
+    permissionOverwrites.push({
+      id: GENERAL_SUPPORT_ROLE_ID,
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+    });
+  } else if (category === 'HR Support') {
+    categoryId = HR_SUPPORT_CATEGORY_ID;
+    // HR Support only has opener and management (no additional roles)
+  }
+  
   const ch = await guild.channels.create({
     name,
-    parent: parentId || undefined,
+    parent: categoryId,
     reason: `Support Ticket for ${opener.id} in category ${category}`,
+    permissionOverwrites
   });
+  
   const ticketId = await generateTicketId();
   const topic = JSON.stringify({ category, openerId: opener.id, openedAt: Date.now(), claimedBy: null, ticketId });
   try { await ch.setTopic(topic); } catch {}

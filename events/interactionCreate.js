@@ -26,6 +26,47 @@ module.exports = {
 
       try {
         await command.execute(interaction, client);
+        
+        // Log command usage to audit logs
+        try {
+          const { sendAuditLog, createBaseEmbed, LogCategories, LogColors, LogEmojis, formatTimestamp } = require('../utils/auditLogger');
+          
+          const options = interaction.options.data.map(opt => {
+            let value = opt.value;
+            if (opt.type === 6) value = `<@${opt.value}>`; // User
+            if (opt.type === 7) value = `<#${opt.value}>`; // Channel
+            if (opt.type === 8) value = `<@&${opt.value}>`; // Role
+            return `${opt.name}: ${value}`;
+          }).join(', ') || 'None';
+          
+          const embed = createBaseEmbed({
+            title: 'Command Used',
+            emoji: '⚙️',
+            color: LogColors.INFO,
+          });
+          
+          embed.addFields(
+            { name: '👤 User', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: '📍 Channel', value: `<#${interaction.channel.id}>`, inline: true },
+            { name: '⚙️ Command', value: `\`/${interaction.commandName}\``, inline: true },
+            { name: '📝 Options', value: options, inline: false },
+            { name: '⏰ Time', value: formatTimestamp(Date.now()), inline: false }
+          );
+          
+          embed.setFooter({ text: `User ID: ${interaction.user.id}` });
+          
+          if (interaction.user.avatarURL()) {
+            embed.setThumbnail(interaction.user.avatarURL());
+          }
+          
+          await sendAuditLog(interaction.guild, {
+            category: LogCategories.COMMANDS,
+            embed,
+          });
+        } catch (logError) {
+          // Silently fail if logging fails
+          console.error('Failed to log command:', logError);
+        }
       } catch (e) {
         console.error(e);
         try {
@@ -48,10 +89,176 @@ module.exports = {
         if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
         const choice = interaction.values[0];
         
-        // Setup flows are now handled by /botsetup command and related utilities
-        // The individual setup commands have been removed - all setup is done through botsetup
+        if (choice === 'shop') {
+          // Shop Setup
+          await interaction.deferReply({ flags: 64 });
+          const SHOP_CHANNEL_ID = '1458589011978223727';
+          const shopChannel = interaction.guild.channels.cache.get(SHOP_CHANNEL_ID);
+          
+          if (!shopChannel || !shopChannel.isTextBased()) {
+            return interaction.editReply({ content: '❌ Shop channel not found or is not a text channel.' });
+          }
+          
+          const { EmbedBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+          const { BRAND_COLOR_HEX } = require('../utils/branding');
+          
+          // Create shop embeds
+          const bannerEmbed = new EmbedBuilder()
+            .setColor(BRAND_COLOR_HEX)
+            .setImage('https://message.style/cdn/images/0d448c93c305da833e3e5d43b43ae5df564397b5b6cd725073d2252f7b1151c4.png');
+          
+          const mainEmbed = new EmbedBuilder()
+            .setTitle('Welcome to the KC Shop!')
+            .setDescription('Explore the items we offer to help you enjoy your stay. Take a look around, and feel free to ask if you have any questions! Open an HR ticket if you\'d like to claim an item.')
+            .setColor(BRAND_COLOR_HEX)
+            .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+          
+          const shopSelect = new StringSelectMenuBuilder()
+            .setCustomId('shop_select')
+            .setPlaceholder('Buy an item!')
+            .addOptions([
+              { label: 'Giveaways & Advertisements', value: 'giveaways', description: 'Promote your community in ours!' },
+              { label: 'Premium', value: 'premium', description: 'Get items, discounts, and more!' },
+              { label: 'Donations', value: 'donations', description: 'Help out our server for a small perk!' },
+            ]);
+          
+          const row = new ActionRowBuilder().addComponents(shopSelect);
+          
+          try {
+            await shopChannel.send({ embeds: [bannerEmbed, mainEmbed], components: [row] });
+            return interaction.editReply({ content: `✅ Shop has been set up in ${shopChannel}!` });
+          } catch (e) {
+            console.error('Shop setup error:', e);
+            return interaction.editReply({ content: '❌ Failed to send shop message. Check bot permissions.' });
+          }
+        }
+        
+        if (choice === 'services') {
+          // Services Setup - Send services board to channel
+          await interaction.deferReply({ flags: 64 });
+          const SERVICES_CHANNEL_ID = '1457494227566067895';
+          const servicesChannel = interaction.guild.channels.cache.get(SERVICES_CHANNEL_ID);
+          
+          if (!servicesChannel || !servicesChannel.isTextBased()) {
+            return interaction.editReply({ content: '❌ Services channel not found or is not a text channel.' });
+          }
+          
+          try {
+            const { EmbedBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+            const { BRAND_COLOR_HEX } = require('../utils/branding');
+            const { buildFields } = require('../utils/servicesBoard');
+            const { listCategories, seedDefaultsIfEmpty } = require('../utils/priceManager');
+            
+            await seedDefaultsIfEmpty();
+            const fields = await buildFields(interaction.guild, null);
+            
+            const bannerEmbed = new EmbedBuilder()
+              .setColor(BRAND_COLOR_HEX)
+              .setImage('https://message.style/cdn/images/73c03054d041546292863ab6737c04d00e26b01bb9feb653a58b1ba7e37238c1.png');
+            
+            const contentEmbed = new EmbedBuilder()
+              .setTitle("Welcome to King's Customs")
+              .setColor(BRAND_COLOR_HEX)
+              .setDescription("Let's make a fun and enjoyable experience for you. First off, while ordering an item, please be sure to acknowledge the rules and order information.")
+              .addFields(fields)
+              .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+            
+            // Build dropdowns
+            const infoSelect = new StringSelectMenuBuilder()
+              .setCustomId('rd_order_info')
+              .setPlaceholder('Order Information')
+              .addOptions([{ label: 'View Order Information', value: 'view', description: 'See pricing and details' }]);
+            
+            const cats = await listCategories();
+            const orderOptions = cats.map(c => ({ label: c, value: c, description: `Order ${c}` }));
+            const orderSelect = new StringSelectMenuBuilder()
+              .setCustomId('rd_ticket_select')
+              .setPlaceholder("Start a King's Customs order")
+              .addOptions(orderOptions.length ? orderOptions : [{ label: 'No categories', value: 'none', description: 'No categories available' }]);
+            
+            const row1 = new ActionRowBuilder().addComponents(infoSelect);
+            const row2 = new ActionRowBuilder().addComponents(orderSelect);
+            
+            await servicesChannel.send({ embeds: [bannerEmbed, contentEmbed], components: [row1, row2] });
+            return interaction.editReply({ content: `✅ Services board has been set up in ${servicesChannel}!` });
+          } catch (e) {
+            console.error('Services setup error:', e);
+            return interaction.editReply({ content: '❌ Failed to send services board. Check bot permissions.' });
+          }
+        }
+        
+        if (choice === 'support') {
+          // Support Setup - Send support panel to channel
+          await interaction.deferReply({ flags: 64 });
+          const SUPPORT_CHANNEL_ID = '1457922312782479423';
+          const supportChannel = interaction.guild.channels.cache.get(SUPPORT_CHANNEL_ID);
+          
+          if (!supportChannel || !supportChannel.isTextBased()) {
+            return interaction.editReply({ content: '❌ Support channel not found or is not a text channel.' });
+          }
+          
+          try {
+            const { EmbedBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+            
+            const bannerEmbed = new EmbedBuilder()
+              .setColor(0x2E7EFE)
+              .setImage('https://message.style/cdn/images/d4f916eb6818e8c9ebd3197ceaa327ea1c142f11f45cdc98e3c53088b6c4b3c1.png');
+            
+            const supportEmbed = new EmbedBuilder()
+              .setTitle('Welcome to Support!')
+              .setDescription('If you\'re experiencing issues or need assistance, please open a ticket so our team can assist you.')
+              .setColor(0x2E7EFE)
+              .addFields([
+                {
+                  name: 'General Support:',
+                  value: '> - Reporting bugs or issues\n> - Technical Help\n> - General Inquiries',
+                  inline: true
+                },
+                {
+                  name: 'HR Support:',
+                  value: '> - Applying for roles\n> - Appeals\n> - Partnerships\n> - Advanced Inquiries',
+                  inline: true
+                }
+              ])
+              .setFooter({ 
+                text: 'Thank you for choosing Kings Customs',
+                iconURL: 'https://cdn.discordapp.com/attachments/1344821240564682856/1457891305224015972/WhiteOutlined.png?ex=696243d5&is=6960f255&hm=6ca3e10b66d521155ed9b5a697ea3b2a10f45fd53fd3c37eb5ed18157d799bf0&animated=true&'
+              })
+              .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+            
+            const supportSelect = new StringSelectMenuBuilder()
+              .setCustomId('support_select')
+              .setPlaceholder('Select a support category')
+              .addOptions([
+                { label: 'General Support', value: 'General Support', description: 'Bugs, technical help, general inquiries' },
+                { label: 'HR Support', value: 'HR Support', description: 'Roles, appeals, partnerships, advanced inquiries' },
+              ]);
+            
+            const row = new ActionRowBuilder().addComponents(supportSelect);
+            
+            await supportChannel.send({ embeds: [bannerEmbed, supportEmbed], components: [row] });
+            return interaction.editReply({ content: `✅ Support panel has been set up in ${supportChannel}!` });
+          } catch (e) {
+            console.error('Support setup error:', e);
+            return interaction.editReply({ content: '❌ Failed to send support panel. Check bot permissions.' });
+          }
+        }
+        
+        if (choice === 'orders') {
+          // Orders Setup - Just configure/seed defaults
+          await interaction.deferReply({ flags: 64 });
+          try {
+            const { seedDefaultsIfEmpty } = require('../utils/priceManager');
+            await seedDefaultsIfEmpty();
+            return interaction.editReply({ content: '✅ Order categories have been configured! Use `/setorderinfo` to manage prices and statuses.' });
+          } catch (e) {
+            console.error('Orders setup error:', e);
+            return interaction.editReply({ content: '❌ Failed to configure order categories.' });
+          }
+        }
+        
         return interaction.reply({ 
-          content: '✅ Setup flows are now integrated. Use `/setorderinfo` for category management. Role mappings are hardcoded.', 
+          content: '❌ Unknown setup option selected.', 
           flags: 64 
         });
       }
@@ -122,6 +329,19 @@ module.exports = {
       }
       if (interaction.customId === 'rd_ticket_select') {
         try {
+          // Check verified role for order tickets
+          const VERIFIED_ROLE_ID = '1297874929085317150';
+          if (!interaction.member.roles.cache.has(VERIFIED_ROLE_ID)) {
+            return interaction.reply({ content: '❌ You must be verified to open order tickets. Please verify your account first.', flags: 64 });
+          }
+
+          // Check blacklist for order tickets
+          const { isBlacklisted } = require('../utils/ticketBlacklist');
+          const blocked = await isBlacklisted(interaction.user.id, 'order').catch(()=>false);
+          if (blocked) {
+            return interaction.reply({ content: '❌ You are blacklisted from opening order tickets.', flags: 64 });
+          }
+
           const sel = interaction.values && interaction.values[0];
           const category = sel && sel !== 'none' ? sel : null;
           if (!category) return interaction.reply({ content: 'No categories available right now.', flags: 64 });
@@ -157,10 +377,42 @@ module.exports = {
         const { ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
         const modal = new ModalBuilder().setCustomId(`support_open_modal:${category}`).setTitle(`Start ${category} Ticket`);
         modal.addComponents(
-          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('roblox').setLabel('Roblox Username').setStyle(TextInputStyle.Short).setRequired(true)),
           new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason').setLabel('Reason for the ticket').setStyle(TextInputStyle.Paragraph).setRequired(true)),
         );
         return interaction.showModal(modal);
+      }
+      if (interaction.customId === 'shop_select') {
+        const selection = interaction.values[0]; // 'giveaways' | 'premium' | 'donations'
+        
+        let bannerUrl = '';
+        let title = '';
+        let description = '';
+        
+        if (selection === 'giveaways') {
+          bannerUrl = 'https://message.style/cdn/images/0d448c93c305da833e3e5d43b43ae5df564397b5b6cd725073d2252f7b1151c4.png';
+          title = 'Giveaways & Ads';
+          description = 'When you buy a sponsored giveaway, you must pay for the ping type and cover the prize cost, including tax. We will send the prize to the winner.\n\nWhen you buy an advertisement, your ad will be posted in the affiliates section after payment is made.\n\n[Sponsored Giveaway (everyone ping)](https://www.roblox.com/game-pass/1665968459/Sponsored-Giveaway-Everyone-Ping)\n[Sponsored Giveaway (here ping)](https://www.roblox.com/game-pass/1665824605/Sponsored-Giveaway-here-ping)\n[Advertisement (everyone ping)](https://www.roblox.com/game-pass/1664586016/Advertisement-everyone-ping)\n[Advertisement (here ping)](https://www.roblox.com/game-pass/1665926341/Advertisement-here-ping)';
+        } else if (selection === 'premium') {
+          bannerUrl = 'https://message.style/cdn/images/9dd089e014d40f38c685904529e2d52bf326be08cd72d8fcb2f19a74269d83de.png';
+          title = 'Premium';
+          description = 'If you buy the Premium pass, you\'ll get a VIP role, 10% off all orders, $100,000 in economy money, early access to free releases, and free priority on orders.\n\n[Premium Gamepass](https://www.roblox.com/game-pass/1665854574/Premium)';
+        } else if (selection === 'donations') {
+          bannerUrl = 'https://message.style/cdn/images/93b3ad9c439c563e702e72cf0bfda520ebf81c5cd0dfe0a7210283340cb43955.png';
+          title = 'Donations';
+          description = 'If you want to support our server and help it grow, you can donate! Donations include boosting the server or giving Robux. When you donate, you\'ll get 3 weeks of Premium on us. Just ask to donate in https://discord.com/channels/1264368359944749066/1442045952511705139\n\nYou must donate more than 150 Robux to recieve premium.';
+        }
+        
+        const bannerEmbed = new EmbedBuilder()
+          .setColor(BRAND_COLOR_HEX)
+          .setImage(bannerUrl);
+        
+        const contentEmbed = new EmbedBuilder()
+          .setTitle(title)
+          .setDescription(description)
+          .setColor(BRAND_COLOR_HEX)
+          .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+        
+        return interaction.reply({ embeds: [bannerEmbed, contentEmbed], flags: 64 });
       }
     }
 
@@ -266,6 +518,45 @@ module.exports = {
           // Mark as logged (idempotent - won't fail if already logged)
           await tryMarkLogged(orderId, ticketId);
           
+          // Use Bloxlink API to find buyer's Discord account and assign role
+          const BUYER_ROLE_ID = '1459287123495485551';
+          let buyerDiscordId = null;
+          let buyerMention = '';
+          
+          try {
+            const { resolveDiscordFromRoblox } = require('../utils/bloxlinkApi');
+            console.log(`[log_order] Looking up Discord ID for Roblox user: ${payment.roblox_username}`);
+            
+            const result = await resolveDiscordFromRoblox(interaction.guild.id, payment.roblox_username);
+            console.log(`[log_order] Bloxlink result:`, result);
+            
+            if (result.discordIds && result.discordIds.length > 0) {
+              // Try to assign role to all linked Discord accounts
+              for (const discordId of result.discordIds) {
+                try {
+                  const member = await interaction.guild.members.fetch(discordId);
+                  if (member) {
+                    await member.roles.add(BUYER_ROLE_ID);
+                    console.log(`[log_order] Assigned buyer role to ${discordId}`);
+                    
+                    // Store first found Discord ID for DM and mention
+                    if (!buyerDiscordId) {
+                      buyerDiscordId = discordId;
+                      buyerMention = ` (<@${discordId}>)`;
+                    }
+                  }
+                } catch (roleErr) {
+                  console.error(`[log_order] Failed to assign role to ${discordId}:`, roleErr);
+                }
+              }
+            } else {
+              console.log(`[log_order] No Discord accounts found for ${payment.roblox_username}`);
+            }
+          } catch (bloxlinkErr) {
+            console.error('[log_order] Bloxlink API error:', bloxlinkErr);
+            // Continue even if Bloxlink fails - don't block order logging
+          }
+          
           // Hardcoded orders log channel
           const ORDERS_LOG_CHANNEL_ID = '1457531008835522741';
           const logChannel = interaction.client.channels.cache.get(ORDERS_LOG_CHANNEL_ID);
@@ -273,7 +564,7 @@ module.exports = {
           const { EmbedBuilder } = require('discord.js');
           
           const logFields = [
-            { name: 'Purchaser (Roblox)', value: payment.roblox_username, inline: true },
+            { name: 'Purchaser (Roblox)', value: `${payment.roblox_username}${buyerMention}`, inline: true },
             { name: 'Designer', value: isDiscordId ? `<@${designerId}>` : designerId, inline: true },
             { name: 'Price', value: `${payment.price} Robux`, inline: true }
           ];
@@ -290,6 +581,33 @@ module.exports = {
             .addFields(logFields)
             .setFooter({ text: `Order ID: ${orderId}` });
           await logChannel.send({ embeds: [logEmbed] });
+          
+          // Send DM to buyer with order confirmation and review prompt
+          if (buyerDiscordId) {
+            try {
+              const buyer = await interaction.client.users.fetch(buyerDiscordId);
+              const dmEmbed = new EmbedBuilder()
+                .setTitle('King\'s Customs — Payment Confirmed')
+                .setDescription('Your payment has been confirmed and your order has been logged! You should receive your products from your designer shortly.')
+                .setColor(BRAND_COLOR_HEX)
+                .addFields([
+                  { name: 'Order Details', value: payment.reason, inline: false },
+                  { name: 'Price', value: `${payment.price} Robux`, inline: true },
+                  { name: 'Order ID', value: orderId, inline: true }
+                ])
+                .addFields([
+                  { name: '⭐ Review Your Designer', value: 'After receiving your products, please review your designer using `/review` in <#1411101165671678042>!', inline: false }
+                ])
+                .setFooter({ text: 'Thank you for your order!' })
+                .setTimestamp();
+              
+              await buyer.send({ embeds: [dmEmbed] });
+              console.log(`[log_order] Sent DM to buyer ${buyerDiscordId}`);
+            } catch (dmErr) {
+              console.error(`[log_order] Failed to send DM to buyer:`, dmErr);
+              // Continue even if DM fails - don't block order logging
+            }
+          }
           
           // Update the original message embed to show order confirmed and logged (green)
           const updatedEmbed = new EmbedBuilder()
@@ -310,6 +628,169 @@ module.exports = {
           console.error('log_order button error:', e);
           return interaction.followUp({ content: '❌ Failed to log order.', ephemeral: true });
         }
+      }
+      
+      // Ban Appeal: Start appeal process
+      if (interaction.customId.startsWith('ban_appeal_start:')) {
+        const guildId = interaction.customId.split(':')[1];
+        
+        // Check cooldown
+        const { canUserAppeal } = require('../utils/banAppeals');
+        const canAppeal = await canUserAppeal(interaction.user.id, guildId).catch(() => false);
+        
+        if (!canAppeal) {
+          return interaction.reply({ 
+            content: '❌ You have already submitted an appeal recently. You must wait 14 days after a denied appeal before submitting another one.', 
+            ephemeral: true 
+          });
+        }
+        
+        // Show modal
+        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
+        const modal = new ModalBuilder()
+          .setCustomId(`ban_appeal_modal:${guildId}`)
+          .setTitle('Ban Appeal');
+        
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('reason_for_ban')
+          .setLabel('Explain the actions that led to your ban')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Describe what happened and what you were banned for...')
+          .setRequired(true)
+          .setMaxLength(1000);
+        
+        const whyUnbanInput = new TextInputBuilder()
+          .setCustomId('why_unban')
+          .setLabel('Why do you think you should be unbanned?')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Explain why you believe you deserve another chance...')
+          .setRequired(true)
+          .setMaxLength(1000);
+        
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(reasonInput),
+          new ActionRowBuilder().addComponents(whyUnbanInput)
+        );
+        
+        return interaction.showModal(modal);
+      }
+      
+      // Ban Appeal: Approve
+      if (interaction.customId.startsWith('ban_appeal_approve:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const appealId = interaction.customId.split(':')[1];
+        
+        const { getBanAppeal, approveBanAppeal } = require('../utils/banAppeals');
+        const appeal = await getBanAppeal(appealId);
+        
+        if (!appeal) {
+          return interaction.editReply({ content: '❌ Appeal not found.' });
+        }
+        
+        if (appeal.status !== 'pending') {
+          return interaction.editReply({ content: `❌ This appeal has already been ${appeal.status}.` });
+        }
+        
+        // Unban the user
+        try {
+          const guild = interaction.client.guilds.cache.get(appeal.guild_id);
+          if (guild) {
+            await guild.bans.remove(appeal.user_id, 'Ban appeal approved');
+          }
+        } catch (e) {
+          console.error('Failed to unban user:', e);
+          return interaction.editReply({ content: '❌ Failed to unban user. They may not be banned or I lack permissions.' });
+        }
+        
+        // Update appeal status
+        await approveBanAppeal(appealId, interaction.user.id);
+        
+        // Send DM to user
+        try {
+          const user = await interaction.client.users.fetch(appeal.user_id);
+          const approvalEmbed = new EmbedBuilder()
+            .setTitle('✅ Ban Appeal Approved')
+            .setDescription('Your ban appeal has been approved! You may now rejoin King\'s Customs.')
+            .setColor(0x00FF00)
+            .addFields([
+              { name: 'Server', value: 'King\'s Customs', inline: true },
+              { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true }
+            ])
+            .setFooter({ text: 'Please follow our rules to avoid future bans' })
+            .setTimestamp();
+          
+          await user.send({ embeds: [approvalEmbed] });
+        } catch (e) {
+          console.error('Failed to send approval DM:', e);
+        }
+        
+        // Update the original message
+        try {
+          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+            .setColor(0x00FF00)
+            .setTitle('✅ Ban Appeal - APPROVED')
+            .addFields([{ name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true }]);
+          
+          await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+        } catch (e) {
+          console.error('Failed to update appeal message:', e);
+        }
+        
+        return interaction.editReply({ content: '✅ Ban appeal approved. User has been unbanned and notified.' });
+      }
+      
+      // Ban Appeal: Deny
+      if (interaction.customId.startsWith('ban_appeal_deny:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const appealId = interaction.customId.split(':')[1];
+        
+        const { getBanAppeal, denyBanAppeal } = require('../utils/banAppeals');
+        const appeal = await getBanAppeal(appealId);
+        
+        if (!appeal) {
+          return interaction.editReply({ content: '❌ Appeal not found.' });
+        }
+        
+        if (appeal.status !== 'pending') {
+          return interaction.editReply({ content: `❌ This appeal has already been ${appeal.status}.` });
+        }
+        
+        // Update appeal status with 14 day cooldown
+        await denyBanAppeal(appealId, interaction.user.id);
+        
+        // Send DM to user
+        try {
+          const user = await interaction.client.users.fetch(appeal.user_id);
+          const denialEmbed = new EmbedBuilder()
+            .setTitle('❌ Ban Appeal Denied')
+            .setDescription('Your ban appeal has been denied. You may submit another appeal in 14 days.')
+            .setColor(0xFF0000)
+            .addFields([
+              { name: 'Server', value: 'King\'s Customs', inline: true },
+              { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
+              { name: 'Next Appeal Available', value: `<t:${Math.floor((Date.now() + 14 * 24 * 60 * 60 * 1000) / 1000)}:R>`, inline: false }
+            ])
+            .setFooter({ text: 'Appeals are reviewed carefully by our moderation team' })
+            .setTimestamp();
+          
+          await user.send({ embeds: [denialEmbed] });
+        } catch (e) {
+          console.error('Failed to send denial DM:', e);
+        }
+        
+        // Update the original message
+        try {
+          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+            .setColor(0xFF0000)
+            .setTitle('❌ Ban Appeal - DENIED')
+            .addFields([{ name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true }]);
+          
+          await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+        } catch (e) {
+          console.error('Failed to update appeal message:', e);
+        }
+        
+        return interaction.editReply({ content: '✅ Ban appeal denied. User has been notified and can appeal again in 14 days.' });
       }
       
       // LOA: Request new LOA
@@ -961,51 +1442,55 @@ module.exports = {
         return interaction.showModal(modal);
       }
       if (interaction.customId === 'ticket_delay_cancel') {
-        await interaction.deferUpdate();
-        return interaction.editReply({ content: 'Cancelled.', components: [] });
+        return interaction.update({ content: 'Cancelled.', embeds: [], components: [] });
       }
       if (interaction.customId.startsWith('ticket_claim:')) {
-        await interaction.deferUpdate();
-        const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.followUp({ content: 'Use this in the ticket channel.', ephemeral: true });
-        const meta = await getTicketMeta(interaction.channel);
-        
-        // Check if already claimed
-        if (meta.claimedBy) {
-          return interaction.followUp({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
-        }
-        
-        meta.claimedBy = interaction.user.id;
-        try { await interaction.channel.setTopic(JSON.stringify(meta)); } catch {}
-        
-        // Update the message to remove the claim button
-        const newButtons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`ticket_close:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(`ticket_close_reason:${channelId}`).setLabel('Close w/ Reason').setStyle(ButtonStyle.Danger),
-        );
-        
-        // Update the original message
         try {
-          await interaction.message.edit({ components: [newButtons] });
-        } catch (e) {
-          console.error('Failed to update ticket buttons:', e);
+          const channelId = interaction.customId.split(':')[1];
+          if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+          
+          const meta = await getTicketMeta(interaction.channel);
+          
+          // Check if already claimed
+          if (meta.claimedBy) {
+            return interaction.reply({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
+          }
+          
+          meta.claimedBy = interaction.user.id;
+          try { await interaction.channel.setTopic(JSON.stringify(meta)); } catch {}
+          
+          // Update the message to remove the claim button
+          const newButtons = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`ticket_close:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId(`ticket_close_reason:${channelId}`).setLabel('Close w/ Reason').setStyle(ButtonStyle.Danger),
+          );
+          
+          // Update the original message and send response
+          await interaction.update({ components: [newButtons] });
+          
+          // Send a follow-up message
+          const { EmbedBuilder } = require('discord.js');
+          const { BRAND_COLOR_HEX, BRAND_NAME } = require('../utils/branding');
+          const embed = new EmbedBuilder()
+            .setTitle('🎫 Ticket Claimed')
+            .setDescription(`This ticket has been claimed by ${interaction.user}.`)
+            .setColor(BRAND_COLOR_HEX)
+            .addFields(
+              { name: 'Claimed By', value: `<@${interaction.user.id}>`, inline: true },
+              { name: 'Claimed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+            )
+            .setFooter({ text: BRAND_NAME })
+            .setTimestamp();
+          
+          return interaction.followUp({ embeds: [embed] });
+        } catch (error) {
+          console.error('Error in ticket_claim:', error);
+          try {
+            if (!interaction.replied && !interaction.deferred) {
+              return interaction.reply({ content: '❌ Failed to claim ticket.', ephemeral: true });
+            }
+          } catch {}
         }
-        
-        // Send a follow-up embed message
-        const { EmbedBuilder } = require('discord.js');
-        const { BRAND_COLOR_HEX, BRAND_NAME } = require('../utils/branding');
-        const embed = new EmbedBuilder()
-          .setTitle('🎫 Ticket Claimed')
-          .setDescription(`This ticket has been claimed by ${interaction.user}.`)
-          .setColor(BRAND_COLOR_HEX)
-          .addFields(
-            { name: 'Claimed By', value: `<@${interaction.user.id}>`, inline: true },
-            { name: 'Claimed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
-          )
-          .setFooter({ text: BRAND_NAME })
-          .setTimestamp();
-        
-        return interaction.followUp({ embeds: [embed] });
       }
       if (interaction.customId.startsWith('ticket_close_reason:')) {
         const channelId = interaction.customId.split(':')[1];
@@ -1035,8 +1520,7 @@ module.exports = {
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null, ticketId: meta.ticketId });
       }
       if (interaction.customId === 'ticket_close_cancel') {
-        await interaction.deferUpdate();
-        return interaction.editReply({ content: 'Close cancelled.', components: [] });
+        return interaction.update({ content: 'Close cancelled.', embeds: [], components: [] });
       }
       if (interaction.customId.startsWith('close_req_confirm:')) {
         await interaction.deferReply({ ephemeral: true });
@@ -1161,10 +1645,48 @@ module.exports = {
           try { await interaction.deferReply({ flags: 64 }); } catch {}
         }
 
+        // Check verified role for order tickets
+        const VERIFIED_ROLE_ID = '1297874929085317150';
+        if (!interaction.member.roles.cache.has(VERIFIED_ROLE_ID)) {
+          return interaction.editReply({ content: '❌ You must be verified to open order tickets. Please verify your account first.' });
+        }
+
+        // Blacklist check for order tickets
+        const { isBlacklisted } = require('../utils/ticketBlacklist');
+        const blocked = await isBlacklisted(interaction.user.id, 'order').catch(()=>false);
+        if (blocked) {
+          return interaction.editReply({ content: '❌ You are blacklisted from opening order tickets.' });
+        }
+
         const category = interaction.customId.split(':')[1];
-        const roblox = interaction.fields.getTextInputValue('roblox');
         const details = interaction.fields.getTextInputValue('details');
         const deadline = interaction.fields.getTextInputValue('deadline');
+
+        // Use Bloxlink API to fetch Roblox username
+        let robloxUsername = null;
+        try {
+          const { getDiscordIdsFromRoblox } = require('../utils/bloxlinkApi');
+          const axios = require('axios');
+          const BLOXLINK_API_KEY = process.env.BLOXLINK_API_KEY;
+          
+          // Use Bloxlink to get Roblox ID from Discord ID
+          const url = `https://api.blox.link/v4/public/guilds/${interaction.guild.id}/discord-to-roblox/${interaction.user.id}`;
+          const res = await axios.get(url, {
+            headers: { Authorization: BLOXLINK_API_KEY },
+            validateStatus: () => true
+          });
+          
+          if (res.status === 200 && res.data?.robloxID) {
+            // Now get the Roblox username from the Roblox ID
+            const robloxId = res.data.robloxID;
+            const userRes = await axios.get(`https://users.roblox.com/v1/users/${robloxId}`);
+            if (userRes.status === 200 && userRes.data?.name) {
+              robloxUsername = userRes.data.name;
+            }
+          }
+        } catch (err) {
+          console.error('[ticket_open_modal] Bloxlink lookup error:', err);
+        }
 
         // Create ticket channel
         const ch = await createTicketChannel(interaction.guild, interaction.user, category);
@@ -1172,7 +1694,7 @@ module.exports = {
         const roleId = getCategoryRole(category);
         const welcome = buildWelcomeEmbed(interaction.user, category);
         const info = buildUserInfoEmbed(interaction.member || interaction.user);
-        const form = buildFormEmbed({ roblox, details, deadline });
+        const form = buildFormEmbed({ roblox: robloxUsername, details, deadline });
         const buttons = buildTicketButtons(ch.id);
 
         await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
@@ -1189,18 +1711,45 @@ module.exports = {
         if (!interaction.deferred && !interaction.replied) {
           try { await interaction.deferReply({ flags: 64 }); } catch {}
         }
+
+        // Blacklist check for support tickets
+        const { isBlacklisted } = require('../utils/ticketBlacklist');
+        const blocked = await isBlacklisted(interaction.user.id, 'support').catch(()=>false);
+        if (blocked) {
+          return interaction.editReply({ content: '❌ You are blacklisted from opening support tickets.' });
+        }
+
         const category = interaction.customId.split(':')[1]; // General Support | HR Support
-        const roblox = interaction.fields.getTextInputValue('roblox');
         const reason = interaction.fields.getTextInputValue('reason');
 
-        // Ensure General Support / HR Support channels exist under Support category
-        const { resolveSupportCategory, createTicketChannelWithParent } = require('../utils/ticketUtils');
-        const supportCat = await resolveSupportCategory(interaction.guild) || await interaction.guild.channels.create({ name: 'Support', type: 4, reason: 'Create Support category' });
-        const parentId = supportCat?.id;
-        // Ensure roles and create ticket channel under Support
-        const { ensureSupportRoles } = require('../utils/categoryRoleSync');
-        try { await ensureSupportRoles(interaction.guild); } catch {}
-        const ch = await createTicketChannelWithParent(interaction.guild, interaction.user, category, parentId);
+        // Use Bloxlink API to fetch Roblox username
+        let robloxUsername = null;
+        try {
+          const axios = require('axios');
+          const BLOXLINK_API_KEY = process.env.BLOXLINK_API_KEY;
+          
+          // Use Bloxlink to get Roblox ID from Discord ID
+          const url = `https://api.blox.link/v4/public/guilds/${interaction.guild.id}/discord-to-roblox/${interaction.user.id}`;
+          const res = await axios.get(url, {
+            headers: { Authorization: BLOXLINK_API_KEY },
+            validateStatus: () => true
+          });
+          
+          if (res.status === 200 && res.data?.robloxID) {
+            // Now get the Roblox username from the Roblox ID
+            const robloxId = res.data.robloxID;
+            const userRes = await axios.get(`https://users.roblox.com/v1/users/${robloxId}`);
+            if (userRes.status === 200 && userRes.data?.name) {
+              robloxUsername = userRes.data.name;
+            }
+          }
+        } catch (err) {
+          console.error('[support_open_modal] Bloxlink lookup error:', err);
+        }
+
+        // Create ticket channel with hardcoded category IDs (handled in createTicketChannelWithParent)
+        const { createTicketChannelWithParent } = require('../utils/ticketUtils');
+        const ch = await createTicketChannelWithParent(interaction.guild, interaction.user, category, null);
         const { getSupportRoles } = require('../utils/categoryRoleSync');
         const supportRoles = getSupportRoles();
         const roleId = supportRoles[category];
@@ -1209,7 +1758,7 @@ module.exports = {
         const { buildSupportWelcomeEmbed, buildUserInfoEmbed, buildSupportFormEmbed } = require('../utils/ticketUtils');
         const welcome = buildSupportWelcomeEmbed(interaction.user, category);
         const info = buildUserInfoEmbed(interaction.member || interaction.user);
-        const form = buildSupportFormEmbed({ roblox, details: reason });
+        const form = buildSupportFormEmbed({ roblox: robloxUsername, details: reason });
         const buttons = buildTicketButtons(ch.id);
         await ch.send({ content: `${interaction.user}${roleId ? ` <@&${roleId}>` : ''}`, embeds: [welcome, info, form], components: [buttons] });
         if (interaction.deferred || interaction.replied) {
@@ -1285,6 +1834,70 @@ module.exports = {
         const reason = interaction.fields.getTextInputValue('reason');
         const meta = await getTicketMeta(interaction.channel);
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason, ticketId: meta.ticketId });
+      }
+      
+      if (interaction.customId.startsWith('ban_appeal_modal:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const guildId = interaction.customId.split(':')[1];
+        
+        const reasonForBan = interaction.fields.getTextInputValue('reason_for_ban').trim();
+        const whyUnban = interaction.fields.getTextInputValue('why_unban').trim();
+        
+        // Create ban appeal in database
+        const { createBanAppeal } = require('../utils/banAppeals');
+        const appealId = await createBanAppeal(interaction.user.id, guildId, reasonForBan, whyUnban);
+        
+        // Send to appeals channel
+        const APPEALS_CHANNEL_ID = '1459306472004649032';
+        const guild = interaction.client.guilds.cache.get(guildId);
+        
+        if (!guild) {
+          return interaction.editReply({ content: '❌ Could not find the server.' });
+        }
+        
+        const appealsChannel = guild.channels.cache.get(APPEALS_CHANNEL_ID);
+        
+        if (!appealsChannel || !appealsChannel.isTextBased()) {
+          return interaction.editReply({ content: '❌ Appeals channel not found.' });
+        }
+        
+        // Create appeal embed
+        const appealEmbed = new EmbedBuilder()
+          .setTitle('📝 New Ban Appeal')
+          .setColor(0xFFAA00)
+          .addFields([
+            { name: 'User', value: `${interaction.user.tag} (<@${interaction.user.id}>)`, inline: true },
+            { name: 'User ID', value: interaction.user.id, inline: true },
+            { name: 'Appeal ID', value: `#${appealId}`, inline: true },
+            { name: 'What led to the ban?', value: reasonForBan.slice(0, 1024), inline: false },
+            { name: 'Why should they be unbanned?', value: whyUnban.slice(0, 1024), inline: false }
+          ])
+          .setThumbnail(interaction.user.displayAvatarURL({ size: 128 }))
+          .setFooter({ text: `Appeal ID: ${appealId}` })
+          .setTimestamp();
+        
+        // Create approve/deny buttons
+        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ban_appeal_approve:${appealId}`)
+            .setLabel('Approve')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+          new ButtonBuilder()
+            .setCustomId(`ban_appeal_deny:${appealId}`)
+            .setLabel('Deny')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('❌')
+        );
+        
+        try {
+          await appealsChannel.send({ embeds: [appealEmbed], components: [buttons] });
+          return interaction.editReply({ content: '✅ Your ban appeal has been submitted! Our moderation team will review it shortly.' });
+        } catch (e) {
+          console.error('Failed to send appeal to channel:', e);
+          return interaction.editReply({ content: '❌ Failed to submit appeal. Please contact a moderator.' });
+        }
       }
       
       if (interaction.customId.startsWith('order_edit_designer_modal:')) {

@@ -54,7 +54,23 @@ module.exports = {
     // Send DM to the user if sendDm is true
     if (sendDm) {
       try {
-        await target.send(`You have been banned from King's Customs for: ${reason}`);
+        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const appealButton = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`ban_appeal_start:${interaction.guild.id}`)
+            .setLabel('Ban Appeal')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('📝')
+        );
+        
+        const banEmbed = new EmbedBuilder()
+          .setTitle('You have been banned from King\'s Customs')
+          .setDescription(`**Reason:** ${reason}\n\nIf you believe this ban was unjust, you may submit a ban appeal using the button below.`)
+          .setColor(0xFF0000)
+          .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
+          .setTimestamp();
+        
+        await target.send({ embeds: [banEmbed], components: [appealButton] });
       } catch (error) {
         console.error('Failed to send DM:', error);
         // Optionally notify the moderator that DM failed
