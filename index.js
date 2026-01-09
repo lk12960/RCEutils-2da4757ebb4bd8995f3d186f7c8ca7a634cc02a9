@@ -44,17 +44,21 @@ for (const folder of commandFolders) {
 
 // Load text commands
 const textCommandsPath = path.join(__dirname, 'commandsT');
-const textCommandFiles = fs.readdirSync(textCommandsPath).filter(file => file.endsWith('.js'));
+if (fs.existsSync(textCommandsPath)) {
+  const textCommandFiles = fs.readdirSync(textCommandsPath).filter(file => file.endsWith('.js'));
 
-for (const file of textCommandFiles) {
-  const filePath = path.join(textCommandsPath, file);
-  const command = require(filePath);
+  for (const file of textCommandFiles) {
+    const filePath = path.join(textCommandsPath, file);
+    const command = require(filePath);
 
-  if (command?.name) {
-    client.textCommands.set(command.name, command);
-  } else {
-    console.warn(`⚠️ Text command at ${filePath} is missing "name"`);
+    if (command?.name) {
+      client.textCommands.set(command.name, command);
+    } else {
+      console.warn(`⚠️ Text command at ${filePath} is missing "name"`);
+    }
   }
+} else {
+  console.warn(`⚠️ Text commands directory not found at ${textCommandsPath}`);
 }
 
 // Load events
@@ -131,5 +135,5 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = 5000;
 server.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Web server running on port ${PORT}`); });
