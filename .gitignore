@@ -1,1 +1,9 @@
-/.env
+node_modules/
+.env
+*.log
+npm-debug.log*
+.DS_Store
+*.db
+database/*.db
+.replit
+replit.nix
