@@ -1,45 +1,84 @@
 // events/channelDelete.js
 const { EmbedBuilder, AuditLogEvent, ChannelType } = require('discord.js');
+const { sendAuditLog, createBaseEmbed, LogCategories, LogColors, LogEmojis, formatExecutor, formatTimestamp, findExecutor } = require('../utils/auditLogger');
 
 module.exports = {
   name: 'channelDelete',
 
   async execute(channel) {
-    const logChannelId = process.env.AUDIT_LOG_CHANNEL_ID;
-    const logChannel = channel.guild?.channels.cache.get(logChannelId);
-    if (!logChannel) return;
+    if (!channel.guild) return;
 
-    let executorTag = 'Unknown';
     try {
-      const fetchedLogs = await channel.guild.fetchAuditLogs({
-        limit: 1,
-        type: AuditLogEvent.ChannelDelete,
+      // Find who deleted the channel
+      const entry = await findExecutor(channel.guild, AuditLogEvent.ChannelDelete, { id: channel.id });
+      let executor = null;
+      if (entry) {
+        executor = entry.executor;
+      }
+
+      const channelTypes = {
+        [ChannelType.GuildText]: 'Text Channel',
+        [ChannelType.GuildVoice]: 'Voice Channel',
+        [ChannelType.GuildCategory]: 'Category',
+        [ChannelType.GuildAnnouncement]: 'Announcement Channel',
+        [ChannelType.AnnouncementThread]: 'Announcement Thread',
+        [ChannelType.PublicThread]: 'Public Thread',
+        [ChannelType.PrivateThread]: 'Private Thread',
+        [ChannelType.GuildStageVoice]: 'Stage Channel',
+        [ChannelType.GuildForum]: 'Forum Channel',
+      };
+
+      const embed = createBaseEmbed({
+        title: 'Channel Deleted',
+        emoji: LogEmojis.CHANNEL_DELETE,
+        color: LogColors.DELETE,
       });
 
-      const logEntry = fetchedLogs.entries.find(entry => entry.target.id === channel.id);
-      if (logEntry && logEntry.executor) {
-        executorTag = `${logEntry.executor.tag} (${logEntry.executor.id})`;
+      embed.addFields(
+        { name: '📝 Name', value: channel.name || 'Unknown', inline: true },
+        { name: '📂 Type', value: channelTypes[channel.type] || 'Unknown', inline: true },
+        { name: '🆔 ID', value: `\`${channel.id}\``, inline: true }
+      );
+
+      if (executor) {
+        embed.addFields({ name: '👤 Deleted By', value: formatExecutor(executor), inline: true });
       }
-    } catch (error) {
-      console.error('Failed to fetch audit logs for channelDelete:', error);
-    }
 
-    const embed = new EmbedBuilder()
-      .setColor(0xed4245)
-      .setTitle('📤 Channel Deleted')
-      .addFields(
-        { name: '➜ Name', value: channel.name || 'Unknown', inline: true },
-        { name: '➜ Type', value: `${channel.type === ChannelType.GuildText ? 'Text' : channel.type === ChannelType.GuildVoice ? 'Voice' : 'Other'}`, inline: true },
-        { name: '➜ ID', value: channel.id, inline: true },
-        { name: '➜ Deleted By', value: executorTag, inline: false }
-      )
-      .setTimestamp()
-      .setFooter({ text: 'Channel Deleted' });
+      // Category
+      if (channel.parent) {
+        embed.addFields({ name: '📁 Was in Category', value: channel.parent.name, inline: true });
+      }
 
-    try {
-      await logChannel.send({ embeds: [embed] });
+      // Position
+      embed.addFields({ name: '📊 Position', value: `${channel.position}`, inline: true });
+
+      // Additional details based on type
+      if (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement) {
+        if (channel.topic) {
+          embed.addFields({ name: '📋 Topic', value: channel.topic.slice(0, 1024), inline: false });
+        }
+        embed.addFields(
+          { name: '🔞 Was NSFW', value: channel.nsfw ? 'Yes' : 'No', inline: true },
+          { name: '⏱️ Slowmode', value: channel.rateLimitPerUser ? `${channel.rateLimitPerUser}s` : 'None', inline: true }
+        );
+      }
+
+      if (channel.type === ChannelType.GuildVoice || channel.type === ChannelType.GuildStageVoice) {
+        embed.addFields(
+          { name: '👥 User Limit', value: channel.userLimit ? `${channel.userLimit}` : 'Unlimited', inline: true },
+          { name: '🎵 Bitrate', value: `${channel.bitrate / 1000}kbps`, inline: true }
+        );
+      }
+
+      embed.addFields({ name: '⏰ Deleted', value: formatTimestamp(Date.now()), inline: false });
+      embed.setFooter({ text: `Channel ID: ${channel.id}` });
+
+      await sendAuditLog(channel.guild, {
+        category: LogCategories.CHANNELS,
+        embed,
+      });
     } catch (error) {
-      console.error('Failed to send channelDelete log:', error);
+      console.error('Failed to log channelDelete:', error);
     }
   },
 };

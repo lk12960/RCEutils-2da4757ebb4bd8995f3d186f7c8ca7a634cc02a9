@@ -1,68 +1,79 @@
 // events/emojiUpdate.js
 const { EmbedBuilder, AuditLogEvent } = require('discord.js');
+const { sendAuditLog, createBaseEmbed, LogCategories, LogColors, LogEmojis, formatExecutor, formatTimestamp, findExecutor } = require('../utils/auditLogger');
 
 module.exports = {
   name: 'emojiUpdate',
 
   async execute(oldEmoji, newEmoji) {
-    const logChannelId = process.env.AUDIT_LOG_CHANNEL_ID;
-    const logChannel = newEmoji.guild?.channels.cache.get(logChannelId);
-    if (!logChannel) return;
-
-    let executorTag = 'Unknown';
     try {
-      const fetchedLogs = await newEmoji.guild.fetchAuditLogs({
-        limit: 1,
-        type: AuditLogEvent.EmojiUpdate,
+      // Find who updated the emoji
+      const entry = await findExecutor(newEmoji.guild, AuditLogEvent.EmojiUpdate, { id: newEmoji.id });
+      let executor = null;
+      if (entry) {
+        executor = entry.executor;
+      }
+
+      const changes = [];
+
+      // Check name change
+      if (oldEmoji.name !== newEmoji.name) {
+        changes.push(`**Name:** \`${oldEmoji.name}\` → \`${newEmoji.name}\``);
+      }
+
+      // Check animated change
+      if (oldEmoji.animated !== newEmoji.animated) {
+        changes.push(`**Animated:** ${oldEmoji.animated ? 'Yes' : 'No'} → ${newEmoji.animated ? 'Yes' : 'No'}`);
+      }
+
+      // Check managed change
+      if (oldEmoji.managed !== newEmoji.managed) {
+        changes.push(`**Managed:** ${oldEmoji.managed ? 'Yes' : 'No'} → ${newEmoji.managed ? 'Yes' : 'No'}`);
+      }
+
+      // Check role restrictions
+      const oldRoles = oldEmoji.roles.cache.map(r => `<@&${r.id}>`).join(', ') || 'None';
+      const newRoles = newEmoji.roles.cache.map(r => `<@&${r.id}>`).join(', ') || 'None';
+
+      if (oldRoles !== newRoles) {
+        changes.push(`**Role Restrictions:**\n• Before: ${oldRoles}\n• After: ${newRoles}`);
+      }
+
+      // If no changes detected, return
+      if (changes.length === 0) return;
+
+      const embed = createBaseEmbed({
+        title: 'Emoji Updated',
+        emoji: LogEmojis.EMOJI_UPDATE,
+        color: LogColors.UPDATE,
       });
 
-      const logEntry = fetchedLogs.entries.find(entry => entry.target.id === newEmoji.id);
-      if (logEntry && logEntry.executor) {
-        executorTag = `${logEntry.executor.tag} (${logEntry.executor.id})`;
+      embed.setThumbnail(newEmoji.url);
+
+      embed.addFields(
+        { name: '😀 Emoji', value: `${newEmoji} \`:${newEmoji.name}:\``, inline: true },
+        { name: '🆔 Emoji ID', value: `\`${newEmoji.id}\``, inline: true }
+      );
+
+      if (executor) {
+        embed.addFields({ name: '👤 Updated By', value: formatExecutor(executor), inline: true });
       }
-    } catch (err) {
-      console.error('Failed to fetch audit logs for emojiUpdate:', err);
-    }
 
-    const changes = [];
+      embed.addFields({ 
+        name: '📝 Changes', 
+        value: changes.join('\n'), 
+        inline: false 
+      });
 
-    if (oldEmoji.name !== newEmoji.name) {
-      changes.push(`**Name**: \`${oldEmoji.name}\` → \`${newEmoji.name}\``);
-    }
+      embed.addFields({ name: '⏰ Updated', value: formatTimestamp(Date.now()), inline: false });
+      embed.setFooter({ text: `Emoji ID: ${newEmoji.id}` });
 
-    if (oldEmoji.animated !== newEmoji.animated) {
-      changes.push(`**Animated**: \`${oldEmoji.animated}\` → \`${newEmoji.animated}\``);
-    }
-
-    if (oldEmoji.managed !== newEmoji.managed) {
-      changes.push(`**Managed**: \`${oldEmoji.managed}\` → \`${newEmoji.managed}\``);
-    }
-
-    const oldRoles = oldEmoji.roles.cache.map(r => `<@&${r.id}>`).join(', ') || 'None';
-    const newRoles = newEmoji.roles.cache.map(r => `<@&${r.id}>`).join(', ') || 'None';
-
-    if (oldRoles !== newRoles) {
-      changes.push(`**Role Restrictions**:\nFrom: ${oldRoles}\nTo: ${newRoles}`);
-    }
-
-    if (changes.length === 0) return;
-
-    const embed = new EmbedBuilder()
-      .setColor(0xe67e22)
-      .setTitle('🖊️ Emoji Updated')
-      .setThumbnail(newEmoji.url)
-      .setDescription(changes.join('\n'))
-      .addFields(
-        { name: '➜ Emoji', value: `${newEmoji} \`:${newEmoji.name}:\` (${newEmoji.id})`, inline: false },
-        { name: '➜ Updated By', value: executorTag, inline: false }
-      )
-      .setTimestamp()
-      .setFooter({ text: 'Emoji Updated' });
-
-    try {
-      await logChannel.send({ embeds: [embed] });
+      await sendAuditLog(newEmoji.guild, {
+        category: LogCategories.EMOJIS,
+        embed,
+      });
     } catch (error) {
-      console.error('Failed to send emojiUpdate log:', error);
+      console.error('Failed to log emojiUpdate:', error);
     }
   },
 };

@@ -1,45 +1,54 @@
 // events/emojiDelete.js
 const { EmbedBuilder, AuditLogEvent } = require('discord.js');
+const { sendAuditLog, createBaseEmbed, LogCategories, LogColors, LogEmojis, formatExecutor, formatTimestamp, findExecutor } = require('../utils/auditLogger');
 
 module.exports = {
   name: 'emojiDelete',
 
   async execute(emoji) {
-    const logChannelId = process.env.AUDIT_LOG_CHANNEL_ID;
-    const logChannel = emoji.guild?.channels.cache.get(logChannelId);
-    if (!logChannel) return;
-
-    let executorTag = 'Unknown';
     try {
-      const fetchedLogs = await emoji.guild.fetchAuditLogs({
-        limit: 1,
-        type: AuditLogEvent.EmojiDelete,
+      // Find who deleted the emoji
+      const entry = await findExecutor(emoji.guild, AuditLogEvent.EmojiDelete, { id: emoji.id });
+      let executor = null;
+      if (entry) {
+        executor = entry.executor;
+      }
+
+      const embed = createBaseEmbed({
+        title: 'Emoji Deleted',
+        emoji: LogEmojis.EMOJI_DELETE,
+        color: LogColors.DELETE,
       });
 
-      const logEntry = fetchedLogs.entries.find(entry => entry.target.id === emoji.id);
-      if (logEntry && logEntry.executor) {
-        executorTag = `${logEntry.executor.tag} (${logEntry.executor.id})`;
+      embed.addFields(
+        { name: '📝 Emoji Name', value: emoji.name, inline: true },
+        { name: '🆔 Emoji ID', value: `\`${emoji.id}\``, inline: true }
+      );
+
+      if (executor) {
+        embed.addFields({ name: '👤 Deleted By', value: formatExecutor(executor), inline: true });
       }
-    } catch (err) {
-      console.error('Failed to fetch audit logs for emojiDelete:', err);
-    }
 
-    const embed = new EmbedBuilder()
-      .setColor(0xe74c3c)
-      .setTitle('➖ Emoji Deleted')
-      .addFields(
-        { name: '➜ Emoji', value: `${emoji.name} (${emoji.id})`, inline: false },
-        { name: '➜ Deleted By', value: executorTag, inline: false },
-        { name: '➜ Animated', value: emoji.animated ? 'Yes' : 'No', inline: true },
-        { name: '➜ Managed', value: emoji.managed ? 'Yes' : 'No', inline: true },
-      )
-      .setTimestamp()
-      .setFooter({ text: 'Emoji Deleted' });
+      embed.addFields(
+        { name: '🎬 Was Animated', value: emoji.animated ? 'Yes' : 'No', inline: true },
+        { name: '🔗 Was Managed', value: emoji.managed ? 'Yes' : 'No', inline: true }
+      );
 
-    try {
-      await logChannel.send({ embeds: [embed] });
+      // Role restrictions (if any existed)
+      if (emoji.roles.cache.size > 0) {
+        const roles = emoji.roles.cache.map(r => `<@&${r.id}>`).join(', ');
+        embed.addFields({ name: '🎭 Had Role Restrictions', value: roles, inline: false });
+      }
+
+      embed.addFields({ name: '⏰ Deleted', value: formatTimestamp(Date.now()), inline: false });
+      embed.setFooter({ text: `Emoji ID: ${emoji.id}` });
+
+      await sendAuditLog(emoji.guild, {
+        category: LogCategories.EMOJIS,
+        embed,
+      });
     } catch (error) {
-      console.error('Failed to send emojiDelete log:', error);
+      console.error('Failed to log emojiDelete:', error);
     }
   },
 };
