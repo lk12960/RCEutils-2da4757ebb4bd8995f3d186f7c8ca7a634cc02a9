@@ -51,18 +51,35 @@ async function buildFields(guild, servicesCategoryId) {
 }
 
 async function refreshServicesBoard(guild) {
-  const servicesChannelId = await getSetting('services_channel_id');
-  const servicesMessageId = await getSetting('services_message_id');
-  const servicesCategoryId = await getSetting('services_category_id');
-  if (!servicesChannelId || !servicesMessageId || !servicesCategoryId) return false;
+  // Hardcoded services channel ID
+  const SERVICES_CHANNEL_ID = '1457494227566067895';
+  
+  const servicesChannel = guild.channels.cache.get(SERVICES_CHANNEL_ID);
+  if (!servicesChannel || servicesChannel.type !== ChannelType.GuildText) {
+    console.error('[refreshServicesBoard] Services channel not found or not a text channel');
+    return false;
+  }
 
-  const servicesChannel = guild.channels.cache.get(servicesChannelId);
-  if (!servicesChannel || servicesChannel.type !== ChannelType.GuildText) return false;
+  // Find the services board message (look for the last message from the bot with embeds)
+  const messages = await servicesChannel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!messages) {
+    console.error('[refreshServicesBoard] Could not fetch messages from services channel');
+    return false;
+  }
+  
+  // Find the services board message (has title "Welcome to King's Customs")
+  const msg = messages.find(m => 
+    m.author.id === guild.client.user.id && 
+    m.embeds.length > 0 && 
+    m.embeds.some(e => e.title === "Welcome to King's Customs")
+  );
+  
+  if (!msg) {
+    console.error('[refreshServicesBoard] Services board message not found');
+    return false;
+  }
 
-  const msg = await servicesChannel.messages.fetch(servicesMessageId).catch(() => null);
-  if (!msg) return false;
-
-  const fields = await buildFields(guild, servicesCategoryId);
+  const fields = await buildFields(guild, null);
 
   const bannerEmbed = new EmbedBuilder()
     .setColor(BRAND_COLOR_HEX)

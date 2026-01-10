@@ -30,6 +30,7 @@ module.exports = {
         { label: 'Orders Setup', value: 'orders', description: 'Configure orders category and logging channels' },
         { label: 'Support Setup', value: 'support', description: 'Create support panel and roles' },
         { label: 'Shop Setup', value: 'shop', description: 'Create interactive shop with product categories' },
+        { label: 'Dashboard Setup', value: 'dashboard', description: 'Create dashboard with reaction roles and info' },
       ]);
 
     await interaction.editReply({ embeds: [banner, welcome], components: [new ActionRowBuilder().addComponents(select)] });

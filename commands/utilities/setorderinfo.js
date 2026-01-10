@@ -1,7 +1,8 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const { requireTier } = require('../../utils/permissions');
 const { BRAND_COLOR_HEX } = require('../../utils/branding');
-const priceManager = require('../../utils/priceManager');
+const { setCategoryStatus, getCategoryStatus } = require('../../utils/categoryStatusManager');
+const { listCategories } = require('../../utils/priceManager');
 
 // Hardcoded order categories with role IDs
 const ORDER_CATEGORIES = {
@@ -13,117 +14,62 @@ const ORDER_CATEGORIES = {
   'Discord Bot': '1457930518245937300'
 };
 
+// Status emojis
+const STATUS_EMOJIS = {
+  'open': '<:open1:1457478173687283979><:open2:1457478228217430266><:open3:1457478319003140188>',
+  'delayed': '<:delayed1:1457478413584699601><:delayed2:1457478442751758484><:delayed3:1457478509592187004>',
+  'closed': '<:close1:1457478377433727168><:close2:1457478352389541889><:close3:1457478290095865897>'
+};
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('setorderinfo')
-    .setDescription('Manage order item prices and statuses')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(sub =>
-      sub.setName('setprice')
-        .setDescription('Set price for a category/item')
-        .addStringOption(o => o.setName('category').setDescription('Category name').setRequired(true).setAutocomplete(true))
-        .addStringOption(o => o.setName('item').setDescription('Item name').setRequired(true))
-        .addIntegerOption(o => o.setName('price').setDescription('Price in Robux').setRequired(true))
-    )
-    .addSubcommand(sub =>
-      sub.setName('setstatus')
-        .setDescription('Set status for a category/item')
-        .addStringOption(o => o.setName('category').setDescription('Category name').setRequired(true).setAutocomplete(true))
-        .addStringOption(o => o.setName('item').setDescription('Item name').setRequired(true))
-        .addStringOption(o => o.setName('status').setDescription('Status').setRequired(true)
-          .addChoices(
-            { name: 'Open', value: 'Open' },
-            { name: 'Closed', value: 'Closed' },
-            { name: 'Limited', value: 'Limited' }
-          ))
-    )
-    .addSubcommand(sub =>
-      sub.setName('view')
-        .setDescription('View all prices and statuses')
-    ),
-
-  async autocomplete(interaction) {
-    const focusedOption = interaction.options.getFocused(true);
-    if (focusedOption.name === 'category') {
-      const categories = Object.keys(ORDER_CATEGORIES);
-      const filtered = categories.filter(cat => cat.toLowerCase().includes(focusedOption.value.toLowerCase()));
-      await interaction.respond(filtered.slice(0, 25).map(cat => ({ name: cat, value: cat })));
-    }
-  },
+    .setDescription('Manage order category statuses (Open, Delayed, Closed)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     const isOwner = interaction.guild && interaction.user.id === interaction.guild.ownerId;
     if (!isOwner && !requireTier(interaction.member, 'management')) {
-      return interaction.reply({ content: '❌ You need management permissions.', flags: 64 });
+      return interaction.reply({ content: '❌ You need management permissions.', ephemeral: true });
     }
 
-    const subcommand = interaction.options.getSubcommand();
-
-    if (subcommand === 'setprice') {
-      await interaction.deferReply({ ephemeral: true });
-      
-      const category = interaction.options.getString('category');
-      const item = interaction.options.getString('item');
-      const price = interaction.options.getInteger('price');
-
-      if (!ORDER_CATEGORIES[category]) {
-        return interaction.editReply({ content: `❌ Invalid category. Valid categories: ${Object.keys(ORDER_CATEGORIES).join(', ')}` });
-      }
-
-      if (price < 0) {
-        return interaction.editReply({ content: '❌ Price must be 0 or greater.' });
-      }
-
-      await priceManager.setPrice(category, item, price);
-
-      return interaction.editReply({
-        content: `✅ Set price for **${category} > ${item}** to **${price} Robux**`
-      });
+    // Get all categories (auto-defer will kick in if this takes >2s)
+    const categories = await listCategories();
+    
+    if (!categories || categories.length === 0) {
+      const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+      return interaction[replyMethod]({ content: '❌ No order categories found.', ephemeral: true });
     }
 
-    if (subcommand === 'setstatus') {
-      await interaction.deferReply({ ephemeral: true });
-      
-      const category = interaction.options.getString('category');
-      const item = interaction.options.getString('item');
-      const status = interaction.options.getString('status');
+    // Build embed showing current statuses
+    const embed = new EmbedBuilder()
+      .setTitle('Order Category Status Manager')
+      .setDescription('Select a category below to change its status.')
+      .setColor(BRAND_COLOR_HEX)
+      .setTimestamp();
 
-      if (!ORDER_CATEGORIES[category]) {
-        return interaction.editReply({ content: `❌ Invalid category. Valid categories: ${Object.keys(ORDER_CATEGORIES).join(', ')}` });
-      }
-
-      await priceManager.setStatus(category, item, status);
-
-      return interaction.editReply({
-        content: `✅ Set status for **${category} > ${item}** to **${status}**`
-      });
+    const statusLines = [];
+    for (const cat of categories) {
+      const status = (await getCategoryStatus(interaction.guild.id, cat)) || 'closed';
+      const emoji = STATUS_EMOJIS[status.toLowerCase()] || STATUS_EMOJIS['closed'];
+      statusLines.push(`${emoji} **${cat}** - ${status.charAt(0).toUpperCase() + status.slice(1)}`);
     }
 
-    if (subcommand === 'view') {
-      await interaction.deferReply({ ephemeral: true });
-      
-      const allData = await priceManager.getAllPrices();
-      
-      const embed = new EmbedBuilder()
-        .setTitle('Order Item Prices & Statuses')
-        .setColor(BRAND_COLOR_HEX)
-        .setTimestamp();
+    embed.addFields({ name: 'Current Statuses', value: statusLines.join('\n'), inline: false });
 
-      if (Object.keys(allData).length === 0) {
-        embed.setDescription('No items configured yet. Use `/setorderinfo setprice` to add items.');
-      } else {
-        for (const [category, items] of Object.entries(allData)) {
-          const itemList = Object.entries(items)
-            .map(([itemName, data]) => `**${itemName}**: ${data.price || 0} Robux - ${data.status || 'Open'}`)
-            .join('\n');
-          
-          if (itemList) {
-            embed.addFields({ name: category, value: itemList, inline: false });
-          }
-        }
-      }
+    // Build dropdown to select category
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`setorderinfo_select:${interaction.user.id}`)
+      .setPlaceholder('Select a category to update')
+      .addOptions(categories.map(cat => ({
+        label: cat,
+        value: cat,
+        description: `Change status for ${cat}`
+      })));
 
-      return interaction.editReply({ embeds: [embed] });
-    }
+    const row = new ActionRowBuilder().addComponents(selectMenu);
+
+    const replyMethod = interaction.deferred ? 'editReply' : 'reply';
+    return interaction[replyMethod]({ embeds: [embed], components: [row], ephemeral: true });
   }
 };

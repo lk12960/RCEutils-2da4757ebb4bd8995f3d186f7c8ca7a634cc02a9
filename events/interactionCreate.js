@@ -257,6 +257,63 @@ module.exports = {
           }
         }
         
+        if (choice === 'dashboard') {
+          // Dashboard Setup - Send dashboard with reaction roles
+          await interaction.deferReply({ flags: 64 });
+          const DASHBOARD_CHANNEL_ID = '1304893788388593664';
+          const dashboardChannel = interaction.guild.channels.cache.get(DASHBOARD_CHANNEL_ID);
+          
+          if (!dashboardChannel || !dashboardChannel.isTextBased()) {
+            return interaction.editReply({ content: '❌ Dashboard channel not found or is not a text channel.' });
+          }
+          
+          try {
+            const { EmbedBuilder, StringSelectMenuBuilder, ActionRowBuilder } = require('discord.js');
+            const { BRAND_COLOR_HEX } = require('../utils/branding');
+            
+            // Create dashboard embeds
+            const bannerEmbed = new EmbedBuilder()
+              .setColor(BRAND_COLOR_HEX)
+              .setImage('https://cdn.discordapp.com/attachments/1411101283389149294/1459269961649361098/dashboard_-_Copy.png?ex=6962aa8e&is=6961590e&hm=14af74723f560f93a14acd7cdc3fcc7cfaffc3f495eb84441916dacefcf82e48&animated=true');
+            
+            const mainEmbed = new EmbedBuilder()
+              .setTitle('Welcome to King\'s Customs!')
+              .setDescription('We\'re here to make sure you have a great time. If anything comes up or you need help, head over to https://discord.com/channels/1297697183503745066/1457922312782479423. Enjoy your time here!')
+              .setColor(BRAND_COLOR_HEX)
+              .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+            
+            // Info dropdown (Applications/Rules)
+            const infoSelect = new StringSelectMenuBuilder()
+              .setCustomId('dashboard_info_select')
+              .setPlaceholder('Explore!')
+              .addOptions([
+                { label: 'Applications', value: 'applications', description: 'Information about applications.' },
+                { label: 'Rules and Regulations', value: 'rules', description: 'Learn about our rules in the community!' },
+              ]);
+            
+            // Reaction roles dropdown
+            const rolesSelect = new StringSelectMenuBuilder()
+              .setCustomId('dashboard_roles_select')
+              .setPlaceholder('Customize your roles!')
+              .addOptions([
+                { label: 'Announcements Ping', value: '1361520945579299098', emoji: '📣' },
+                { label: 'Free Release Ping', value: '1444376429692194827', emoji: '🤑' },
+                { label: 'Giveaway Ping', value: '1337838825006960641', emoji: '🎉' },
+                { label: 'Community Ping', value: '1361521088328110131', emoji: { id: '1361379290977140796', name: 'Person' } },
+                { label: 'Dead Chat Ping', value: '1361520967297269850', emoji: '🗨️' },
+              ]);
+            
+            const row1 = new ActionRowBuilder().addComponents(infoSelect);
+            const row2 = new ActionRowBuilder().addComponents(rolesSelect);
+            
+            await dashboardChannel.send({ embeds: [bannerEmbed, mainEmbed], components: [row1, row2] });
+            return interaction.editReply({ content: `✅ Dashboard has been set up in ${dashboardChannel}!` });
+          } catch (e) {
+            console.error('Dashboard setup error:', e);
+            return interaction.editReply({ content: '❌ Failed to send dashboard message. Check bot permissions.' });
+          }
+        }
+        
         return interaction.reply({ 
           content: '❌ Unknown setup option selected.', 
           flags: 64 
@@ -381,6 +438,120 @@ module.exports = {
         );
         return interaction.showModal(modal);
       }
+      
+      if (interaction.customId.startsWith('setorderinfo_select:')) {
+        const [, uid] = interaction.customId.split(':');
+        if (uid !== interaction.user.id) return interaction.reply({ content: 'This panel is not yours.', flags: 64 });
+        
+        const category = interaction.values[0];
+        
+        // Show status selection buttons
+        const { ButtonBuilder, ButtonStyle, ActionRowBuilder, EmbedBuilder } = require('discord.js');
+        const { BRAND_COLOR_HEX } = require('../utils/branding');
+        
+        const embed = new EmbedBuilder()
+          .setTitle(`Set Status for ${category}`)
+          .setDescription('Select the new status for this category:')
+          .setColor(BRAND_COLOR_HEX);
+        
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`setorderinfo_status:${category}:open`)
+            .setLabel('Open')
+            .setEmoji('<:open2:1457478228217430266>')
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`setorderinfo_status:${category}:delayed`)
+            .setLabel('Delayed')
+            .setEmoji('<:delayed2:1457478442751758484>')
+            .setStyle(ButtonStyle.Primary),
+          new ButtonBuilder()
+            .setCustomId(`setorderinfo_status:${category}:closed`)
+            .setLabel('Closed')
+            .setEmoji('<:close2:1457478352389541889>')
+            .setStyle(ButtonStyle.Danger)
+        );
+        
+        return interaction.update({ embeds: [embed], components: [buttons] });
+      }
+      if (interaction.customId === 'dashboard_info_select') {
+        const selection = interaction.values[0]; // 'applications' | 'rules'
+        
+        const { EmbedBuilder } = require('discord.js');
+        
+        let bannerUrl = '';
+        let title = '';
+        let description = '';
+        let fields = [];
+        let footer = null;
+        
+        if (selection === 'applications') {
+          bannerUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459393482803384514/applications.png?ex=69631d98&is=6961cc18&hm=26ff07989619b13b33bd3753f5a37a41ca0020c19e0fe36a53490f3005d50a0e&';
+          title = 'Applications';
+          description = 'Want to join our team and earn Robux? If so, fill out the application and sit back and relax! Just make sure you agree to our TOS and application rules.\n\nTo apply, open an HR support ticket.';
+        } else if (selection === 'rules') {
+          bannerUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459393482077765712/regulations.png?ex=69631d98&is=6961cc18&hm=f2d7ad9471c14ab96200408a6c988d505e139185404bb1bcd83c85425eb14f6e&=&format=webp&quality=lossless';
+          title = 'Server Rules & Guidelines';
+          description = 'By creating an order or participating in this server, you agree to our [Terms of Service](https://docs.google.com/document/d/1vwtXuf2-8wKKWLxTHoekui598EernFyg9sPBRiHOLG8/edit?usp=sharing).\n\nThese rules exist to keep the community professional, respectful, and enjoyable for everyone. Failure to follow them may result in moderation action.';
+          footer = { text: 'Moderation actions are based on severity, intent, and history. Staff discretion applies.' };
+          fields = [
+            { name: '1. Respect & Conduct', value: 'Treat all members with respect at all times. Harassment, discrimination, threats, or hostility toward any individual or group is not allowed.', inline: true },
+            { name: '2. Appropriate Language', value: 'Keep discussions appropriate and professional. Avoid sensitive, political, or controversial topics. Excessive profanity, slurs, or offensive language are prohibited.', inline: true },
+            { name: '3. Pings & Staff Contact', value: 'Do not ping or DM high-ranking staff unnecessarily. For help, orders, or issues, please open a support ticket.', inline: true },
+            { name: '4. Advertising & Promotion', value: 'Advertising other servers, businesses, services, or self-promotion is not allowed. Partnership or collaboration requests must be submitted via ticket.', inline: true },
+            { name: '5. Privacy & Safety', value: 'Do not share personal or private information (yours or others\'). This includes real names, addresses, IPs, passwords, financial info, or malicious links.', inline: true },
+            { name: '6. NSFW & Restricted Content', value: 'NSFW content, discussions, media, or links are strictly prohibited. This server is intended to remain safe and appropriate for all members.', inline: true },
+            { name: '7. Orders, Designs & Roleplay', value: 'Do not steal, resell, or claim designs as your own. Follow all order instructions and roleplay guidelines provided by staff.', inline: false },
+            { name: '8. Common Sense & Enforcement', value: 'Use common sense. Not every situation can be listed here, and staff may act on behavior that disrupts the community or violates the spirit of the rules.', inline: false },
+          ];
+        }
+        
+        const bannerEmbed = new EmbedBuilder()
+          .setColor(BRAND_COLOR_HEX)
+          .setImage(bannerUrl);
+        
+        const contentEmbed = new EmbedBuilder()
+          .setTitle(title)
+          .setDescription(description)
+          .setColor(BRAND_COLOR_HEX)
+          .setImage('https://message.style/cdn/images/48f273307deeb87a887e77d64e64d15b20ec69a1e8ffa75a673776e97438a992.png');
+        
+        if (fields.length > 0) {
+          contentEmbed.addFields(fields);
+        }
+        
+        if (footer) {
+          contentEmbed.setFooter(footer);
+        }
+        
+        return interaction.reply({ embeds: [bannerEmbed, contentEmbed], flags: 64 });
+      }
+      
+      if (interaction.customId === 'dashboard_roles_select') {
+        const roleId = interaction.values[0];
+        
+        try {
+          const member = interaction.member;
+          const role = interaction.guild.roles.cache.get(roleId);
+          
+          if (!role) {
+            return interaction.reply({ content: '❌ Role not found.', flags: 64 });
+          }
+          
+          // Toggle role
+          if (member.roles.cache.has(roleId)) {
+            await member.roles.remove(roleId);
+            return interaction.reply({ content: `❌ Removed the **${role.name}** role.`, flags: 64 });
+          } else {
+            await member.roles.add(roleId);
+            return interaction.reply({ content: `✅ Added the **${role.name}** role.`, flags: 64 });
+          }
+        } catch (error) {
+          console.error('Error toggling role:', error);
+          return interaction.reply({ content: '❌ Failed to toggle role. Make sure the bot has proper permissions.', flags: 64 });
+        }
+      }
+      
       if (interaction.customId === 'shop_select') {
         const selection = interaction.values[0]; // 'giveaways' | 'premium' | 'donations'
         
@@ -737,6 +908,44 @@ module.exports = {
         }
         
         return interaction.editReply({ content: '✅ Ban appeal approved. User has been unbanned and notified.' });
+      }
+      
+      // Set Order Info: Status Button
+      if (interaction.customId.startsWith('setorderinfo_status:')) {
+        const parts = interaction.customId.split(':');
+        const category = parts[1];
+        const status = parts[2]; // 'open' | 'delayed' | 'closed'
+        
+        await interaction.deferUpdate();
+        
+        const { setCategoryStatus } = require('../utils/categoryStatusManager');
+        await setCategoryStatus(interaction.guild.id, category, status);
+        
+        // Refresh services board
+        try {
+          const { refreshServicesBoard } = require('../utils/servicesBoard');
+          await refreshServicesBoard(interaction.guild);
+        } catch (e) {
+          console.error('Failed to refresh services board:', e);
+        }
+        
+        const statusEmojis = {
+          'open': '<:open1:1457478173687283979><:open2:1457478228217430266><:open3:1457478319003140188>',
+          'delayed': '<:delayed1:1457478413584699601><:delayed2:1457478442751758484><:delayed3:1457478509592187004>',
+          'closed': '<:close1:1457478377433727168><:close2:1457478352389541889><:close3:1457478290095865897>'
+        };
+        
+        const { EmbedBuilder } = require('discord.js');
+        const { BRAND_COLOR_HEX } = require('../utils/branding');
+        
+        const embed = new EmbedBuilder()
+          .setTitle('✅ Status Updated')
+          .setDescription(`${statusEmojis[status]}\n\n**${category}** is now set to **${status.charAt(0).toUpperCase() + status.slice(1)}**`)
+          .setColor(BRAND_COLOR_HEX)
+          .setFooter({ text: 'Services board has been updated' })
+          .setTimestamp();
+        
+        return interaction.followUp({ embeds: [embed], ephemeral: true });
       }
       
       // Ban Appeal: Deny
