@@ -272,4 +272,20 @@ function updateOrder(orderId, updates) {
   });
 }
 
-module.exports = { createPayment, getPayment, markConfirmed, tryMarkLogged, getOrdersByDesigner, updateOrder };
+/**
+ * Get order number by ticket ID
+ */
+function getOrderByTicketId(ticketId) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      `SELECT order_num FROM payments WHERE ticket_id = ? LIMIT 1`,
+      [String(ticketId)],
+      (err, row) => {
+        if (err) return reject(err);
+        resolve(row ? row.order_num : null);
+      }
+    );
+  });
+}
+
+module.exports = { createPayment, getPayment, markConfirmed, tryMarkLogged, getOrdersByDesigner, updateOrder, getOrderByTicketId };

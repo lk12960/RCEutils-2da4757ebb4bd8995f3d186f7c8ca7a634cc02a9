@@ -377,6 +377,17 @@ async function logAndCloseTicket(channel, payload) {
   const html = htmlParts.join('');
   const buf = Buffer.from(html, 'utf8');
 
+  // Get order number if this is an order ticket
+  let orderNum = null;
+  if (payload.ticketId) {
+    try {
+      const { getOrderByTicketId } = require('./paymentManager');
+      orderNum = await getOrderByTicketId(payload.ticketId);
+    } catch (err) {
+      console.error('[logAndCloseTicket] Failed to get order number:', err);
+    }
+  }
+
   const { BRAND_NAME } = require('./branding');
   const embedFields = [
     { name: 'Opened By', value: `<@${payload.openerId}>`, inline: true },
@@ -387,6 +398,10 @@ async function logAndCloseTicket(channel, payload) {
   
   if (payload.ticketId) {
     embedFields.push({ name: 'Ticket ID', value: `#${payload.ticketId}`, inline: true });
+  }
+  
+  if (orderNum) {
+    embedFields.push({ name: 'Order Number', value: `#${orderNum}`, inline: true });
   }
   
   if (payload.reason) {

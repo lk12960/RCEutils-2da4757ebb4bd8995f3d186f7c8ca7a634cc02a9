@@ -1728,6 +1728,59 @@ module.exports = {
         await interaction.editReply({ content: '✅ Closing ticket...' });
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null, ticketId: meta.ticketId });
       }
+      
+      if (interaction.customId.startsWith('close_req_confirm:')) {
+        const parts = interaction.customId.split(':');
+        const channelId = parts[1];
+        
+        if (interaction.channel.id !== channelId) {
+          return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        }
+        
+        const meta = await getTicketMeta(interaction.channel);
+        
+        // Only the ticket opener can confirm
+        if (interaction.user.id !== meta.openerId) {
+          return interaction.reply({ content: '❌ Only the ticket opener can close this ticket.', ephemeral: true });
+        }
+        
+        await interaction.update({ content: '✅ Ticket is being closed...', embeds: [], components: [] });
+        
+        // Clear any auto-close timer
+        const { clearChannelTimer } = require('../utils/ticketTimers');
+        clearChannelTimer(channelId);
+        
+        return logAndCloseTicket(interaction.channel, { 
+          category: meta.category, 
+          openerId: meta.openerId, 
+          claimedBy: meta.claimedBy, 
+          closedBy: interaction.user.id, 
+          reason: 'Closed by ticket opener', 
+          ticketId: meta.ticketId 
+        });
+      }
+      
+      if (interaction.customId.startsWith('close_req_keep:')) {
+        const parts = interaction.customId.split(':');
+        const channelId = parts[1];
+        
+        if (interaction.channel.id !== channelId) {
+          return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+        }
+        
+        const meta = await getTicketMeta(interaction.channel);
+        
+        // Only the ticket opener can keep it open
+        if (interaction.user.id !== meta.openerId) {
+          return interaction.reply({ content: '❌ Only the ticket opener can respond to this request.', ephemeral: true });
+        }
+        
+        // Clear any auto-close timer
+        const { clearChannelTimer } = require('../utils/ticketTimers');
+        clearChannelTimer(channelId);
+        
+        return interaction.update({ content: '✅ Ticket will remain open.', embeds: [], components: [] });
+      }
       if (interaction.customId === 'ticket_close_cancel') {
         return interaction.update({ content: 'Close cancelled.', embeds: [], components: [] });
       }
