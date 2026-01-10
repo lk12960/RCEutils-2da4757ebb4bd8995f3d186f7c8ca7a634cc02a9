@@ -18,7 +18,7 @@ const settingsManager = require('./settingsManager');
 // AUDIT LOGGING ENABLED/DISABLED FLAG
 // ============================================================================
 // Set to false to completely disable all audit logging
-const AUDIT_LOGGING_ENABLED = false;
+const AUDIT_LOGGING_ENABLED = true;
 
 // ============================================================================
 // CONFIGURATION
