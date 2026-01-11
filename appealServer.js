@@ -100,9 +100,12 @@ function initializeApp(expressApp) {
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
     resave: false,
     saveUninitialized: false,
+    name: 'appeal_session', // Use different cookie name to avoid conflicts
     cookie: { 
       secure: process.env.NODE_ENV === 'production',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      sameSite: 'lax' // Important for OAuth redirects
     }
   }));
   
@@ -255,12 +258,20 @@ function registerRoutes() {
       avatar: userData.avatar,
     };
     
-    // Redirect to original URL (the appeal page they tried to access)
+    // Get return URL before clearing it
     const returnTo = req.session.returnTo || '/appeal-home';
     delete req.session.returnTo;
     
     console.log(`✅ User ${userData.username} (${userData.id}) authenticated, redirecting to: ${returnTo}`);
-    res.redirect(returnTo);
+    
+    // Save session before redirecting (critical!)
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+        return res.status(500).send('Failed to save session');
+      }
+      res.redirect(returnTo);
+    });
   } catch (error) {
     console.error('OAuth error:', error);
     res.status(500).send('Authentication failed');
