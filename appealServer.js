@@ -20,16 +20,65 @@ if (!fs.existsSync(sessionsDir)) {
   fs.mkdirSync(sessionsDir, { recursive: true });
 }
 
+// Create appeals data directory
+const appealsDataDir = path.join(__dirname, 'appeal_data');
+if (!fs.existsSync(appealsDataDir)) {
+  fs.mkdirSync(appealsDataDir, { recursive: true });
+}
+
+const appealsDataFile = path.join(appealsDataDir, 'appeals.json');
+
 // Store appeal data (appealId -> { userId, guildId, createdAt, expiresAt })
 const appealData = new Map();
+
+// Load appeal data from file on startup
+function loadAppealData() {
+  try {
+    if (fs.existsSync(appealsDataFile)) {
+      const data = JSON.parse(fs.readFileSync(appealsDataFile, 'utf8'));
+      const now = Date.now();
+      
+      // Load non-expired appeals
+      for (const [id, appeal] of Object.entries(data)) {
+        if (appeal.expiresAt > now) {
+          appealData.set(id, appeal);
+        }
+      }
+      console.log(`📝 Loaded ${appealData.size} active appeal(s)`);
+    }
+  } catch (error) {
+    console.error('Error loading appeal data:', error);
+  }
+}
+
+// Save appeal data to file
+function saveAppealData() {
+  try {
+    const data = Object.fromEntries(appealData);
+    fs.writeFileSync(appealsDataFile, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Error saving appeal data:', error);
+  }
+}
+
+// Load data on startup
+loadAppealData();
 
 // Cleanup expired appeals every hour
 setInterval(() => {
   const now = Date.now();
+  let deletedCount = 0;
+  
   for (const [id, data] of appealData.entries()) {
     if (data.expiresAt && data.expiresAt < now) {
       appealData.delete(id);
+      deletedCount++;
     }
+  }
+  
+  if (deletedCount > 0) {
+    console.log(`🧹 Cleaned up ${deletedCount} expired appeal(s)`);
+    saveAppealData();
   }
 }, 60 * 60 * 1000);
 
@@ -68,6 +117,11 @@ function createAppealUrl(userId, guildId, banInfo) {
     expiresAt,
     lastAccessedAt: Date.now()
   });
+  
+  // Save to file immediately
+  saveAppealData();
+  
+  console.log(`📝 Created appeal link for user ${userId} in guild ${guildId}: ${appealId}`);
   
   return `${BASE_URL}/appeal/${appealId}`;
 }
@@ -263,6 +317,7 @@ app.get('/appeal/:appealId', requireAuth, async (req, res) => {
   appeal.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
   appeal.lastAccessedAt = Date.now();
   appealData.set(appealId, appeal);
+  saveAppealData(); // Persist the update
   
   // Check if appeal already exists in database
   const existingAppeal = await getBanAppeal(appeal.userId, appeal.guildId);
@@ -298,6 +353,7 @@ app.post('/appeal/:appealId', requireAuth, async (req, res) => {
   appeal.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
   appeal.lastAccessedAt = Date.now();
   appealData.set(appealId, appeal);
+  saveAppealData(); // Persist the update
   
   const { reason_for_ban, why_unban } = req.body;
   
