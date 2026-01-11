@@ -106,7 +106,7 @@ client.once('ready', async () => {
   // Start ban appeal web server
   try {
     const { startServer } = require('./appealServer');
-    startServer(client);
+    startServer(client, app);
   } catch (err) {
     console.error('Failed to start appeal server:', err);
   }

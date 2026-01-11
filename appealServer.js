@@ -7,8 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const { getBanAppeal, getBanCaseDetails, getCooldownInfo, createBanAppeal } = require('./utils/banAppeals');
 
-const app = express();
-const PORT = process.env.APPEAL_SERVER_PORT || 3000;
+// Use provided app or create new one
+let app = null;
+const PORT = process.env.APPEAL_SERVER_PORT || 3001; // Different port from main server
 const BASE_URL = process.env.APPEAL_BASE_URL || `http://localhost:${PORT}`;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
@@ -61,9 +62,6 @@ function saveAppealData() {
   }
 }
 
-// Load data on startup
-loadAppealData();
-
 // Cleanup expired appeals every hour
 setInterval(() => {
   const now = Date.now();
@@ -82,25 +80,34 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
-app.use(session({
-  store: new FileStore({
-    path: sessionsDir,
-    ttl: 86400, // 24 hours in seconds
-    retries: 2,
-    reapInterval: 3600, // Cleanup expired sessions every hour
-    logFn: () => {} // Suppress logs
-  }),
-  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
-  resave: false,
-  saveUninitialized: false,
-  cookie: { 
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
-}));
+/**
+ * Initialize the appeal system with an Express app
+ */
+function initializeApp(expressApp) {
+  app = expressApp;
+  
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  app.use(express.static('public'));
+  app.use(session({
+    store: new FileStore({
+      path: sessionsDir,
+      ttl: 86400, // 24 hours in seconds
+      retries: 2,
+      reapInterval: 3600, // Cleanup expired sessions every hour
+      logFn: () => {} // Suppress logs
+    }),
+    secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+    resave: false,
+    saveUninitialized: false,
+    cookie: { 
+      secure: process.env.NODE_ENV === 'production',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  }));
+  
+  registerRoutes();
+}
 
 /**
  * Create a new appeal URL for a banned user
@@ -138,14 +145,23 @@ function requireAuth(req, res, next) {
   next();
 }
 
+/**
+ * Register all appeal routes
+ */
+function registerRoutes() {
+  if (!app) {
+    console.error('❌ Cannot register routes: app not initialized');
+    return;
+  }
+
 // ============================================================================
 // DISCORD OAUTH ROUTES
 // ============================================================================
 
-/**
- * GET /login - Show login page
- */
-app.get('/login', (req, res) => {
+  /**
+   * GET /login - Show login page
+   */
+  app.get('/login', (req, res) => {
   const authUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify`;
   
   res.send(`
@@ -189,10 +205,10 @@ app.get('/login', (req, res) => {
   `);
 });
 
-/**
- * GET /auth/discord/callback - OAuth callback
- */
-app.get('/auth/discord/callback', async (req, res) => {
+  /**
+   * GET /auth/discord/callback - OAuth callback
+   */
+  app.get('/auth/discord/callback', async (req, res) => {
   const { code } = req.query;
   
   if (!code) {
@@ -249,34 +265,34 @@ app.get('/auth/discord/callback', async (req, res) => {
   }
 });
 
-/**
- * GET /logout - Logout user
- */
-app.get('/logout', (req, res) => {
-  req.session.destroy();
-  res.redirect('/');
-});
-
-/**
- * GET /test - Test route to verify server is working
- */
-app.get('/test', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'Appeal server is running',
-    timestamp: new Date().toISOString(),
-    activeAppeals: appealData.size
+  /**
+   * GET /logout - Logout user
+   */
+  app.get('/logout', (req, res) => {
+    req.session.destroy();
+    res.redirect('/');
   });
-});
 
-// ============================================================================
-// APPEAL ROUTES
-// ============================================================================
+  /**
+   * GET /test - Test route to verify server is working
+   */
+  app.get('/test', (req, res) => {
+    res.json({ 
+      status: 'ok', 
+      message: 'Appeal server is running',
+      timestamp: new Date().toISOString(),
+      activeAppeals: appealData.size
+    });
+  });
 
-/**
- * GET / - Home/status page
- */
-app.get('/', requireAuth, async (req, res) => {
+  // ============================================================================
+  // APPEAL ROUTES
+  // ============================================================================
+
+  /**
+   * GET / - Home/status page (for appeal system, not main site)
+   */
+  app.get('/appeal-home', requireAuth, async (req, res) => {
   const userId = req.session.user.id;
   
   // Check if user has any bans across guilds
@@ -303,10 +319,10 @@ app.get('/', requireAuth, async (req, res) => {
   }
 });
 
-/**
- * GET /appeal/:appealId - View/submit appeal
- */
-app.get('/appeal/:appealId', requireAuth, async (req, res) => {
+  /**
+   * GET /appeal/:appealId - View/submit appeal
+   */
+  app.get('/appeal/:appealId', requireAuth, async (req, res) => {
   const { appealId } = req.params;
   const appeal = appealData.get(appealId);
   
@@ -350,10 +366,10 @@ app.get('/appeal/:appealId', requireAuth, async (req, res) => {
   res.send(generateAppealFormPage(req.session.user, appeal, appealId));
 });
 
-/**
- * POST /appeal/:appealId - Submit appeal
- */
-app.post('/appeal/:appealId', requireAuth, async (req, res) => {
+  /**
+   * POST /appeal/:appealId - Submit appeal
+   */
+  app.post('/appeal/:appealId', requireAuth, async (req, res) => {
   const { appealId } = req.params;
   const appeal = appealData.get(appealId);
   
@@ -447,7 +463,8 @@ app.post('/appeal/:appealId', requireAuth, async (req, res) => {
     console.error('Error submitting appeal:', error);
     res.status(500).json({ success: false, message: 'Failed to submit appeal' });
   }
-});
+  });
+} // End of registerRoutes()
 
 // ============================================================================
 // HTML GENERATION FUNCTIONS
@@ -832,24 +849,24 @@ function generateBanStatusPage(user, bans) {
 }
 
 module.exports = {
-  app,
   createAppealUrl,
-  startServer: (client) => {
+  initializeApp,
+  startServer: (client, expressApp) => {
+    if (!expressApp) {
+      console.error('❌ No Express app provided to appeal server');
+      return;
+    }
+    
     global.discordClient = client;
     
-    // Debug: Log all registered routes
-    console.log('📋 Registering appeal routes...');
-    app._router.stack.forEach((middleware) => {
-      if (middleware.route) {
-        const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
-        console.log(`  ${methods} ${middleware.route.path}`);
-      }
-    });
+    // Initialize with the provided Express app
+    initializeApp(expressApp);
     
-    app.listen(PORT, () => {
-      console.log(`📝 Ban Appeal Server running on port ${PORT}`);
-      console.log(`🔗 Base URL: ${BASE_URL}`);
-      console.log(`🔑 OAuth Redirect: ${REDIRECT_URI}`);
-    });
+    // Load appeal data on server start
+    loadAppealData();
+    
+    console.log('✅ Ban Appeal System initialized');
+    console.log(`🔗 Base URL: ${BASE_URL}`);
+    console.log(`🔑 OAuth Redirect: ${REDIRECT_URI}`);
   }
 };
