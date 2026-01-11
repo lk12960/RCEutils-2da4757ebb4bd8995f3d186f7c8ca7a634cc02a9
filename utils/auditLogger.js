@@ -175,24 +175,7 @@ setInterval(() => {
  */
 async function getLogChannels(guild, category = null) {
   try {
-    // Try to get from settings manager
-    const settings = await settingsManager.getSettings(guild.id).catch(() => null);
-    
-    if (settings?.auditChannels) {
-      if (category && settings.auditChannels[category]) {
-        const channel = guild.channels.cache.get(settings.auditChannels[category]);
-        return channel ? [channel] : [];
-      }
-      
-      // Return main audit channel
-      const mainChannel = settings.auditChannels.main || settings.auditChannels.all;
-      if (mainChannel) {
-        const channel = guild.channels.cache.get(mainChannel);
-        return channel ? [channel] : [];
-      }
-    }
-    
-    // Fallback to environment variable
+    // Get audit log channel from environment variable
     const logChannelId = process.env.AUDIT_LOG_CHANNEL_ID;
     if (logChannelId) {
       const channel = guild.channels.cache.get(logChannelId);

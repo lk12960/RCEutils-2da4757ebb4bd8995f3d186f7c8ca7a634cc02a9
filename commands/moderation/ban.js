@@ -39,19 +39,8 @@ module.exports = {
     const reason = interaction.options.getString('reason') || 'No reason provided';
     const sendDm = interaction.options.getBoolean('senddm') ?? false; // Default to false if not specified
 
-    // Attempt to ban the user
-    try { await (require('../../utils/stats').track)('ban', 1, interaction.guild?.id, { user: target.id }); } catch {}
-    try {
-      await interaction.guild.bans.create(target.id, { reason });
-    } catch (error) {
-      console.error('Ban failed:', error);
-      return interaction.reply({
-        content: '❌ I could not ban this user. Do I have the correct permissions?',
-        ephemeral: true,
-      });
-    }
-
-    // Send DM to the user if sendDm is true
+    // Send DM to the user BEFORE banning to maximize delivery success
+    let dmFailed = false;
     if (sendDm) {
       try {
         const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
@@ -65,7 +54,7 @@ module.exports = {
         
         const banEmbed = new EmbedBuilder()
           .setTitle('You have been banned from King\'s Customs')
-          .setDescription(`**Reason:** ${reason}\n\nIf you believe this ban was unjust, you may submit a ban appeal using the button below.`)
+          .setDescription(`**Reason:** ${reason}\\n\\nIf you believe this ban was unjust, you may submit a ban appeal using the button below.`)
           .setColor(0xFF0000)
           .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
           .setTimestamp();
@@ -73,12 +62,20 @@ module.exports = {
         await target.send({ embeds: [banEmbed], components: [appealButton] });
       } catch (error) {
         console.error('Failed to send DM:', error);
-        // Optionally notify the moderator that DM failed
-        await interaction.followUp({
-          content: `⚠️ Could not send DM to ${target.tag}. They may have DMs disabled.`,
-          ephemeral: true,
-        });
+        dmFailed = true;
       }
+    }
+
+    // Attempt to ban the user
+    try { await (require('../../utils/stats').track)('ban', 1, interaction.guild?.id, { user: target.id }); } catch {}
+    try {
+      await interaction.guild.bans.create(target.id, { reason });
+    } catch (error) {
+      console.error('Ban failed:', error);
+      return interaction.reply({
+        content: '❌ I could not ban this user. Do I have the correct permissions?',
+        ephemeral: true,
+      });
     }
 
     const caseId = await createCase(target.id, interaction.user.id, 'Ban', reason);
@@ -101,7 +98,7 @@ module.exports = {
     }
 
     await interaction.reply({
-      content: `🔨 Banned **${target.tag}**\n🆔 Case #${caseId}\n📄 Reason: ${reason}${sendDm ? '\n📩 DM sent to user' : ''}`,
+      content: `🔨 Banned **${target.tag}**\\n🆔 Case #${caseId}\\n📄 Reason: ${reason}${sendDm ? (dmFailed ? '\\n⚠️ Could not send DM (user may have DMs disabled)' : '\\n📩 DM sent to user') : ''}`,
       ephemeral: false,
     });
   },
