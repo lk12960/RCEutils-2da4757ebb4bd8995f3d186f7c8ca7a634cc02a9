@@ -257,6 +257,18 @@ app.get('/logout', (req, res) => {
   res.redirect('/');
 });
 
+/**
+ * GET /test - Test route to verify server is working
+ */
+app.get('/test', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'Appeal server is running',
+    timestamp: new Date().toISOString(),
+    activeAppeals: appealData.size
+  });
+});
+
 // ============================================================================
 // APPEAL ROUTES
 // ============================================================================
@@ -824,8 +836,20 @@ module.exports = {
   createAppealUrl,
   startServer: (client) => {
     global.discordClient = client;
+    
+    // Debug: Log all registered routes
+    console.log('📋 Registering appeal routes...');
+    app._router.stack.forEach((middleware) => {
+      if (middleware.route) {
+        const methods = Object.keys(middleware.route.methods).join(', ').toUpperCase();
+        console.log(`  ${methods} ${middleware.route.path}`);
+      }
+    });
+    
     app.listen(PORT, () => {
       console.log(`📝 Ban Appeal Server running on port ${PORT}`);
+      console.log(`🔗 Base URL: ${BASE_URL}`);
+      console.log(`🔑 OAuth Redirect: ${REDIRECT_URI}`);
     });
   }
 };
