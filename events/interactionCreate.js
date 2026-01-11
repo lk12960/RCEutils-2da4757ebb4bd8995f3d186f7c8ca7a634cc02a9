@@ -801,55 +801,11 @@ module.exports = {
         }
       }
       
-      // Ban Appeal: Start appeal process - Generate web form URL
+      // Ban Appeal: Old button handler - No longer used (appeals sent via direct link in DM)
+      // Keeping for backwards compatibility with old ban DMs
       if (interaction.customId.startsWith('ban_appeal_start:')) {
-        const guildId = interaction.customId.split(':')[1];
-        
-        // Check cooldown
-        const { canUserAppeal, getBanCaseDetails, getCooldownInfo } = require('../utils/banAppeals');
-        const { createAppealSession } = require('../appealServer');
-        
-        const cooldownInfo = await getCooldownInfo(interaction.user.id, guildId).catch(() => null);
-        
-        if (cooldownInfo) {
-          return interaction.reply({ 
-            content: `⏳ You are currently on cooldown from submitting ban appeals.\n\n**Time Remaining:** ${cooldownInfo.daysRemaining} day${cooldownInfo.daysRemaining !== 1 ? 's' : ''}\n**Can Appeal After:** <t:${Math.floor(cooldownInfo.canAppealAfter.getTime() / 1000)}:F>`, 
-            ephemeral: true 
-          });
-        }
-        
-        // Get ban case details
-        const banCase = await getBanCaseDetails(interaction.user.id, guildId).catch(() => null);
-        const guild = interaction.client.guilds.cache.get(guildId);
-        
-        // Create appeal session with ban details
-        const appealUrl = createAppealSession(interaction.user.id, guildId, {
-          reason: banCase?.reason || 'No reason provided',
-          moderator: banCase?.moderator_tag || 'Unknown',
-          caseId: banCase?.case_id || null,
-          timestamp: banCase?.timestamp || Date.now(),
-          guildName: guild?.name || "King's Customs",
-          guildIcon: guild?.iconURL({ size: 256 }) || null
-        });
-        
-        const { EmbedBuilder } = require('discord.js');
-        const appealEmbed = new EmbedBuilder()
-          .setTitle('📝 Ban Appeal Form')
-          .setDescription(
-            `Your ban appeal form has been generated!\n\n` +
-            `**Click the link below to submit your appeal:**\n` +
-            `🔗 [Open Appeal Form](${appealUrl})\n\n` +
-            `⚠️ **Important:**\n` +
-            `• This link expires in 24 hours\n` +
-            `• You can only submit one appeal per link\n` +
-            `• Be honest and respectful in your responses`
-          )
-          .setColor(0x2E7EFE) // Royal blue
-          .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
-          .setTimestamp();
-        
         return interaction.reply({ 
-          embeds: [appealEmbed],
+          content: '⚠️ Please use the appeal link that was sent in your ban notification DM. If you no longer have it, please contact a server administrator.', 
           ephemeral: true 
         });
       }

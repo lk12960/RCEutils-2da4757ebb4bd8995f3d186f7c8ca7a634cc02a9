@@ -1,21 +1,25 @@
-// Ban Appeal Web Server
+// Ban Appeal Web Server with Discord OAuth
 const express = require('express');
-const path = require('path');
-const { v4: uuidv4 } = require('uuid');
-const { canUserAppeal, createBanAppeal, getBanAppeal } = require('./utils/banAppeals');
+const session = require('express-session');
+const crypto = require('crypto');
+const { getBanAppeal, getBanCaseDetails, getCooldownInfo, createBanAppeal } = require('./utils/banAppeals');
 
 const app = express();
 const PORT = process.env.APPEAL_SERVER_PORT || 3000;
+const BASE_URL = process.env.APPEAL_BASE_URL || `http://localhost:${PORT}`;
+const CLIENT_ID = process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = `${BASE_URL}/auth/discord/callback`;
 
-// Store active appeal sessions (appealToken -> { userId, guildId, banInfo, expiresAt })
-const appealSessions = new Map();
+// Store appeal data (appealId -> { userId, guildId, createdAt, expiresAt })
+const appealData = new Map();
 
-// Cleanup expired sessions every hour
+// Cleanup expired appeals every hour
 setInterval(() => {
   const now = Date.now();
-  for (const [token, session] of appealSessions.entries()) {
-    if (session.expiresAt < now) {
-      appealSessions.delete(token);
+  for (const [id, data] of appealData.entries()) {
+    if (data.expiresAt && data.expiresAt < now) {
+      appealData.delete(id);
     }
   }
 }, 60 * 60 * 1000);
@@ -23,143 +27,261 @@ setInterval(() => {
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
+app.use(session({
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
+}));
 
 /**
- * Create a new appeal session and return the URL
- * Called by the ban appeal button handler
+ * Create a new appeal URL for a banned user
  */
-function createAppealSession(userId, guildId, banInfo) {
-  const token = uuidv4();
-  const expiresAt = Date.now() + (24 * 60 * 60 * 1000); // 24 hours
+function createAppealUrl(userId, guildId, banInfo) {
+  const appealId = crypto.randomBytes(16).toString('hex');
+  const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days from creation
   
-  appealSessions.set(token, {
+  appealData.set(appealId, {
     userId,
     guildId,
     banInfo,
+    createdAt: Date.now(),
     expiresAt,
-    createdAt: Date.now()
+    lastAccessedAt: Date.now()
   });
   
-  const baseUrl = process.env.APPEAL_BASE_URL || `http://localhost:${PORT}`;
-  return `${baseUrl}/appeal/${token}`;
+  return `${BASE_URL}/appeal/${appealId}`;
 }
 
+// ============================================================================
+// MIDDLEWARE: Authentication Check
+// ============================================================================
+function requireAuth(req, res, next) {
+  if (!req.session.user) {
+    // Store the original URL they tried to access
+    req.session.returnTo = req.originalUrl;
+    return res.redirect('/login');
+  }
+  next();
+}
+
+// ============================================================================
+// DISCORD OAUTH ROUTES
+// ============================================================================
+
 /**
- * GET /appeal/:token - Show the ban appeal form
+ * GET /login - Show login page
  */
-app.get('/appeal/:token', async (req, res) => {
-  const { token } = req.params;
-  const session = appealSessions.get(token);
+app.get('/login', (req, res) => {
+  const authUrl = `https://discord.com/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify`;
   
-  if (!session) {
-    return res.status(404).send(`
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Appeal Not Found - King's Customs</title>
-        <link rel="stylesheet" href="/css/appeal.css">
-      </head>
-      <body>
-        <div class="container">
-          <div class="error-card">
-            <h1>❌ Appeal Not Found</h1>
-            <p>This appeal link has expired or is invalid.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-  
-  // Check if already expired
-  if (session.expiresAt < Date.now()) {
-    appealSessions.delete(token);
-    return res.status(410).send(`
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Appeal Expired - King's Customs</title>
-        <link rel="stylesheet" href="/css/appeal.css">
-      </head>
-      <body>
-        <div class="container">
-          <div class="error-card">
-            <h1>⏰ Appeal Link Expired</h1>
-            <p>This appeal link has expired. Please request a new one.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-  
-  // Check cooldown
-  try {
-    const canAppeal = await canUserAppeal(session.userId, session.guildId);
-    if (!canAppeal) {
-      // Get the cooldown end date
-      const db = require('./database/db');
-      const row = await new Promise((resolve, reject) => {
-        db.get(
-          `SELECT can_appeal_after FROM ban_appeals 
-           WHERE user_id = ? AND guild_id = ? AND status = 'denied' 
-           ORDER BY created_at DESC LIMIT 1`,
-          [String(session.userId), String(session.guildId)],
-          (err, row) => err ? reject(err) : resolve(row)
-        );
-      });
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Ban Appeals</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="appeal-card login-card">
+      <div class="header">
+        <h1>🔐 Login Required</h1>
+        <p class="subtitle">Authenticate with Discord to continue</p>
+      </div>
       
-      const cooldownEnd = row?.can_appeal_after ? new Date(row.can_appeal_after) : null;
-      const now = new Date();
-      const timeLeft = cooldownEnd ? Math.ceil((cooldownEnd - now) / (1000 * 60 * 60 * 24)) : 0;
-      
-      return res.send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Appeal Cooldown - King's Customs</title>
-          <link rel="stylesheet" href="/css/appeal.css">
-        </head>
-        <body>
-          <div class="container">
-            <div class="cooldown-card">
-              <img src="${session.banInfo.guildIcon || ''}" alt="Server Icon" class="guild-icon">
-              <h1>⏳ Appeal Cooldown Active</h1>
-              <p>You cannot submit another appeal at this time.</p>
-              <div class="cooldown-info">
-                <p><strong>Time Remaining:</strong> ${timeLeft} day${timeLeft !== 1 ? 's' : ''}</p>
-                <p class="cooldown-note">You may submit a new appeal after your previous denial cooldown expires.</p>
-              </div>
-            </div>
-          </div>
-        </body>
-        </html>
-      `);
-    }
-  } catch (error) {
-    console.error('Error checking appeal cooldown:', error);
-  }
-  
-  // Render the appeal form
-  res.send(generateAppealFormHTML(token, session));
+      <div class="login-content">
+        <p class="login-description">
+          You must log in with your Discord account to view or submit ban appeals.
+        </p>
+        
+        <a href="${authUrl}" class="discord-login-button">
+          <svg class="discord-icon" viewBox="0 0 127.14 96.36" xmlns="http://www.w3.org/2000/svg">
+            <path fill="currentColor" d="M107.7,8.07A105.15,105.15,0,0,0,81.47,0a72.06,72.06,0,0,0-3.36,6.83A97.68,97.68,0,0,0,49,6.83,72.37,72.37,0,0,0,45.64,0,105.89,105.89,0,0,0,19.39,8.09C2.79,32.65-1.71,56.6.54,80.21h0A105.73,105.73,0,0,0,32.71,96.36,77.7,77.7,0,0,0,39.6,85.25a68.42,68.42,0,0,1-10.85-5.18c.91-.66,1.8-1.34,2.66-2a75.57,75.57,0,0,0,64.32,0c.87.71,1.76,1.39,2.66,2a68.68,68.68,0,0,1-10.87,5.19,77,77,0,0,0,6.89,11.1A105.25,105.25,0,0,0,126.6,80.22h0C129.24,52.84,122.09,29.11,107.7,8.07ZM42.45,65.69C36.18,65.69,31,60,31,53s5-12.74,11.43-12.74S54,46,53.89,53,48.84,65.69,42.45,65.69Zm42.24,0C78.41,65.69,73.25,60,73.25,53s5-12.74,11.44-12.74S96.23,46,96.12,53,91.08,65.69,84.69,65.69Z"/>
+          </svg>
+          <span>Login with Discord</span>
+        </a>
+        
+        <div class="login-note">
+          <p>🔒 We only request permission to verify your Discord identity.</p>
+          <p>Your information is secure and not stored permanently.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `);
 });
 
 /**
- * POST /appeal/:token - Submit the ban appeal
+ * GET /auth/discord/callback - OAuth callback
  */
-app.post('/appeal/:token', async (req, res) => {
-  const { token } = req.params;
-  const session = appealSessions.get(token);
+app.get('/auth/discord/callback', async (req, res) => {
+  const { code } = req.query;
   
-  if (!session || session.expiresAt < Date.now()) {
-    return res.status(404).json({ success: false, message: 'Appeal session expired or invalid' });
+  if (!code) {
+    return res.status(400).send('No code provided');
   }
+  
+  try {
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: REDIRECT_URI,
+      }),
+    });
+    
+    const tokenData = await tokenResponse.json();
+    
+    if (!tokenData.access_token) {
+      console.error('No access token received:', tokenData);
+      return res.status(500).send('Failed to authenticate');
+    }
+    
+    // Get user info
+    const userResponse = await fetch('https://discord.com/api/users/@me', {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+      },
+    });
+    
+    const userData = await userResponse.json();
+    
+    // Store user in session
+    req.session.user = {
+      id: userData.id,
+      username: userData.username,
+      discriminator: userData.discriminator,
+      avatar: userData.avatar,
+    };
+    
+    // Redirect to original URL or home
+    const returnTo = req.session.returnTo || '/';
+    delete req.session.returnTo;
+    res.redirect(returnTo);
+  } catch (error) {
+    console.error('OAuth error:', error);
+    res.status(500).send('Authentication failed');
+  }
+});
+
+/**
+ * GET /logout - Logout user
+ */
+app.get('/logout', (req, res) => {
+  req.session.destroy();
+  res.redirect('/');
+});
+
+// ============================================================================
+// APPEAL ROUTES
+// ============================================================================
+
+/**
+ * GET / - Home/status page
+ */
+app.get('/', requireAuth, async (req, res) => {
+  const userId = req.session.user.id;
+  
+  // Check if user has any bans across guilds
+  const db = require('./database/db');
+  
+  try {
+    const bans = await new Promise((resolve, reject) => {
+      db.all(
+        `SELECT * FROM cases WHERE user_id = ? AND action = 'BAN' ORDER BY timestamp DESC`,
+        [String(userId)],
+        (err, rows) => err ? reject(err) : resolve(rows || [])
+      );
+    });
+    
+    if (bans.length === 0) {
+      return res.send(generateNotBannedPage(req.session.user));
+    }
+    
+    // Show ban status
+    res.send(generateBanStatusPage(req.session.user, bans));
+  } catch (error) {
+    console.error('Error fetching ban status:', error);
+    res.status(500).send('Error loading status');
+  }
+});
+
+/**
+ * GET /appeal/:appealId - View/submit appeal
+ */
+app.get('/appeal/:appealId', requireAuth, async (req, res) => {
+  const { appealId } = req.params;
+  const appeal = appealData.get(appealId);
+  
+  if (!appeal) {
+    return res.status(404).send(generateErrorPage('Appeal Not Found', 'This appeal link is invalid or has expired.'));
+  }
+  
+  // Check if logged-in user matches the banned user
+  if (req.session.user.id !== appeal.userId) {
+    return res.status(403).send(generateErrorPage('Access Denied', 'You do not have permission to view this appeal.'));
+  }
+  
+  // Check if already expired (30 days of inactivity)
+  if (appeal.expiresAt < Date.now()) {
+    appealData.delete(appealId);
+    return res.status(410).send(generateErrorPage('Appeal Expired', 'This appeal has expired due to 30 days of inactivity.'));
+  }
+  
+  // Reset expiration to 30 days from now (extends on each access)
+  appeal.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
+  appeal.lastAccessedAt = Date.now();
+  appealData.set(appealId, appeal);
+  
+  // Check if appeal already exists in database
+  const existingAppeal = await getBanAppeal(appeal.userId, appeal.guildId);
+  
+  if (existingAppeal) {
+    // Show status page
+    return res.send(generateAppealStatusPage(req.session.user, appeal, existingAppeal, appealId));
+  }
+  
+  // Check cooldown
+  const cooldownInfo = await getCooldownInfo(appeal.userId, appeal.guildId).catch(() => null);
+  
+  if (cooldownInfo) {
+    return res.send(generateCooldownPage(req.session.user, appeal, cooldownInfo));
+  }
+  
+  // Show appeal form
+  res.send(generateAppealFormPage(req.session.user, appeal, appealId));
+});
+
+/**
+ * POST /appeal/:appealId - Submit appeal
+ */
+app.post('/appeal/:appealId', requireAuth, async (req, res) => {
+  const { appealId } = req.params;
+  const appeal = appealData.get(appealId);
+  
+  if (!appeal || req.session.user.id !== appeal.userId) {
+    return res.status(403).json({ success: false, message: 'Access denied' });
+  }
+  
+  // Reset expiration to 30 days from now on appeal attempt
+  appeal.expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
+  appeal.lastAccessedAt = Date.now();
+  appealData.set(appealId, appeal);
   
   const { reason_for_ban, why_unban } = req.body;
   
@@ -169,69 +291,63 @@ app.post('/appeal/:token', async (req, res) => {
   
   try {
     // Check cooldown again
-    const canAppeal = await canUserAppeal(session.userId, session.guildId);
-    if (!canAppeal) {
-      return res.status(403).json({ success: false, message: 'You are currently on cooldown' });
+    const cooldownInfo = await getCooldownInfo(appeal.userId, appeal.guildId).catch(() => null);
+    if (cooldownInfo) {
+      return res.status(403).json({ success: false, message: 'You are on cooldown' });
     }
     
-    // Create the appeal in database
-    const appealId = await createBanAppeal(
-      session.userId,
-      session.guildId,
-      reason_for_ban,
-      why_unban
-    );
+    // Create appeal
+    const appealDbId = await createBanAppeal(appeal.userId, appeal.guildId, reason_for_ban, why_unban);
     
-    // Send to appeals channel (will be handled by client reference)
+    // Send to appeals channel
     if (global.discordClient) {
       const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-      const guild = global.discordClient.guilds.cache.get(session.guildId);
+      const guild = global.discordClient.guilds.cache.get(appeal.guildId);
       
       if (guild) {
         const APPEALS_CHANNEL_ID = '1459306472004649032';
         const appealsChannel = guild.channels.cache.get(APPEALS_CHANNEL_ID);
         
         if (appealsChannel) {
-          const user = await global.discordClient.users.fetch(session.userId).catch(() => null);
+          const user = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
           
           const appealEmbed = new EmbedBuilder()
             .setTitle('📝 New Ban Appeal')
-            .setColor(0x2E7EFE) // Royal blue
+            .setColor(0x2E7EFE)
             .addFields([
-              { name: '👤 User', value: user ? `${user.tag} (<@${session.userId}>)` : `<@${session.userId}>`, inline: true },
-              { name: '🆔 User ID', value: session.userId, inline: true },
+              { name: '👤 User', value: user ? `${user.tag} (<@${appeal.userId}>)` : `<@${appeal.userId}>`, inline: true },
+              { name: '🆔 User ID', value: appeal.userId, inline: true },
               { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
               { name: '📋 What led to your ban?', value: reason_for_ban, inline: false },
               { name: '❓ Why should you be unbanned?', value: why_unban, inline: false }
             ])
-            .setFooter({ text: `Appeal ID: ${appealId}` })
+            .setFooter({ text: `Appeal ID: ${appealDbId}` })
             .setTimestamp();
           
           if (user && user.avatarURL()) {
             appealEmbed.setThumbnail(user.avatarURL());
           }
           
-          // Ban details from session
-          if (session.banInfo) {
-            if (session.banInfo.reason) {
-              appealEmbed.addFields({ name: '⚖️ Ban Reason', value: session.banInfo.reason, inline: false });
+          if (appeal.banInfo) {
+            if (appeal.banInfo.reason) {
+              appealEmbed.addFields({ name: '⚖️ Ban Reason', value: appeal.banInfo.reason, inline: false });
             }
-            if (session.banInfo.moderator) {
-              appealEmbed.addFields({ name: '👮 Banned By', value: session.banInfo.moderator, inline: true });
+            if (appeal.banInfo.moderator) {
+              appealEmbed.addFields({ name: '👮 Banned By', value: appeal.banInfo.moderator, inline: true });
             }
-            if (session.banInfo.caseId) {
-              appealEmbed.addFields({ name: '🔢 Case ID', value: `#${session.banInfo.caseId}`, inline: true });
+            if (appeal.banInfo.caseId) {
+              appealEmbed.addFields({ name: '🔢 Case ID', value: `#${appeal.banInfo.caseId}`, inline: true });
             }
           }
           
           const buttons = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setCustomId(`ban_appeal_approve:${appealId}`)
+              .setCustomId(`ban_appeal_approve:${appealDbId}`)
               .setLabel('Approve')
               .setStyle(ButtonStyle.Success)
               .setEmoji('✅'),
             new ButtonBuilder()
-              .setCustomId(`ban_appeal_deny:${appealId}`)
+              .setCustomId(`ban_appeal_deny:${appealDbId}`)
               .setLabel('Deny')
               .setStyle(ButtonStyle.Danger)
               .setEmoji('❌')
@@ -242,20 +358,94 @@ app.post('/appeal/:token', async (req, res) => {
       }
     }
     
-    // Delete the session token so it can't be used again
-    appealSessions.delete(token);
-    
-    res.json({ success: true, message: 'Appeal submitted successfully' });
+    res.json({ success: true });
   } catch (error) {
     console.error('Error submitting appeal:', error);
     res.status(500).json({ success: false, message: 'Failed to submit appeal' });
   }
 });
 
-function generateAppealFormHTML(token, session) {
-  const banInfo = session.banInfo || {};
-  const guildIcon = banInfo.guildIcon || '';
-  const guildName = banInfo.guildName || "King's Customs";
+// ============================================================================
+// HTML GENERATION FUNCTIONS
+// ============================================================================
+
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+function generateNotBannedPage(user) {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Not Banned - Ban Appeals</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="appeal-card">
+      <div class="header">
+        <h1>✅ Not Banned</h1>
+        <p class="subtitle">Welcome, ${escapeHtml(user.username)}</p>
+      </div>
+      
+      <div class="status-content success-status">
+        <div class="status-icon">🎉</div>
+        <h2>You're all set!</h2>
+        <p>You are not currently banned from any servers.</p>
+        <a href="/logout" class="logout-button">Logout</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+function generateErrorPage(title, message) {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(title)} - Ban Appeals</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="error-card">
+      <h1>❌ ${escapeHtml(title)}</h1>
+      <p>${escapeHtml(message)}</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+function generateAppealStatusPage(user, appeal, existingAppeal, appealId) {
+  const status = existingAppeal.status; // 'pending', 'approved', 'denied'
+  const statusConfig = {
+    pending: { icon: '⏳', color: '#FFA500', title: 'Appeal Pending', message: 'Your appeal is being reviewed by our moderation team.' },
+    approved: { icon: '✅', color: '#00FF88', title: 'Appeal Approved', message: 'Your ban appeal has been approved! You should be unbanned shortly.' },
+    denied: { icon: '❌', color: '#FF4757', title: 'Appeal Denied', message: 'Your ban appeal has been denied.' }
+  };
+  
+  const config = statusConfig[status] || statusConfig.pending;
+  const cooldownInfo = existingAppeal.can_appeal_after ? new Date(existingAppeal.can_appeal_after) : null;
+  const now = new Date();
+  const canReappeal = cooldownInfo && now >= cooldownInfo;
+  const daysLeft = cooldownInfo && now < cooldownInfo ? Math.ceil((cooldownInfo - now) / (1000 * 60 * 60 * 24)) : 0;
   
   return `
 <!DOCTYPE html>
@@ -263,24 +453,121 @@ function generateAppealFormHTML(token, session) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ban Appeal - ${guildName}</title>
+  <title>Appeal Status - Ban Appeals</title>
   <link rel="stylesheet" href="/css/appeal.css">
 </head>
 <body>
   <div class="container">
     <div class="appeal-card">
       <div class="header">
-        ${guildIcon ? `<img src="${guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
+        ${appeal.banInfo && appeal.banInfo.guildIcon ? `<img src="${appeal.banInfo.guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
+        <h1>Ban Appeal Status</h1>
+        <p class="subtitle">${appeal.banInfo ? escapeHtml(appeal.banInfo.guildName) : 'Server'}</p>
+      </div>
+      
+      <div class="appeal-status-card" style="border-left: 4px solid ${config.color};">
+        <div class="status-icon-large">${config.icon}</div>
+        <h2>${config.title}</h2>
+        <p class="status-message">${config.message}</p>
+        
+        ${status === 'denied' && cooldownInfo ? `
+          <div class="cooldown-section">
+            ${canReappeal ? `
+              <p class="cooldown-expired">✅ Your cooldown has expired. You may submit a new appeal.</p>
+              <a href="/appeal/${appealId}" class="submit-button" style="display: inline-block; text-decoration: none; margin-top: 20px;">Submit New Appeal</a>
+            ` : `
+              <div class="cooldown-active">
+                <p class="cooldown-title">⏰ Cooldown Active</p>
+                <p class="cooldown-time">${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining</p>
+                <p class="cooldown-note">You can submit another appeal after <strong>${cooldownInfo.toLocaleDateString()}</strong></p>
+              </div>
+            `}
+          </div>
+        ` : ''}
+        
+        <div class="appeal-details">
+          <h3>Appeal Details</h3>
+          <div class="detail-item">
+            <span class="detail-label">Submitted:</span>
+            <span class="detail-value">${new Date(existingAppeal.created_at).toLocaleString()}</span>
+          </div>
+          ${existingAppeal.reviewed_at ? `
+          <div class="detail-item">
+            <span class="detail-label">Reviewed:</span>
+            <span class="detail-value">${new Date(existingAppeal.reviewed_at).toLocaleString()}</span>
+          </div>
+          ` : ''}
+        </div>
+      </div>
+      
+      <a href="/logout" class="logout-link">Logout</a>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+function generateCooldownPage(user, appeal, cooldownInfo) {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Appeal Cooldown - Ban Appeals</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="cooldown-card">
+      ${appeal.banInfo && appeal.banInfo.guildIcon ? `<img src="${appeal.banInfo.guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
+      <h1>⏳ Appeal Cooldown Active</h1>
+      <p>You cannot submit another appeal at this time.</p>
+      <div class="cooldown-info">
+        <p><strong>Time Remaining:</strong> ${cooldownInfo.daysRemaining} day${cooldownInfo.daysRemaining !== 1 ? 's' : ''}</p>
+        <p><strong>Can Appeal After:</strong> ${cooldownInfo.canAppealAfter.toLocaleDateString()}</p>
+        <p class="cooldown-note">You may submit a new appeal after your previous denial cooldown expires.</p>
+      </div>
+      <a href="/logout" class="logout-link">Logout</a>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+function generateAppealFormPage(user, appeal, appealId) {
+  const banInfo = appeal.banInfo || {};
+  
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Submit Ban Appeal - ${banInfo.guildName || 'Server'}</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="appeal-card">
+      <div class="header">
+        ${banInfo.guildIcon ? `<img src="${banInfo.guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
         <h1>Ban Appeal</h1>
-        <p class="subtitle">${guildName}</p>
+        <p class="subtitle">${escapeHtml(banInfo.guildName || 'Server')}</p>
       </div>
       
       <div class="ban-details">
         <h2>Ban Information</h2>
         <div class="details-grid">
           <div class="detail-item">
+            <span class="detail-label">User:</span>
+            <span class="detail-value">${escapeHtml(user.username)}</span>
+          </div>
+          <div class="detail-item">
             <span class="detail-label">User ID:</span>
-            <span class="detail-value">${session.userId}</span>
+            <span class="detail-value">${appeal.userId}</span>
           </div>
           ${banInfo.reason ? `
           <div class="detail-item full-width">
@@ -341,6 +628,8 @@ function generateAppealFormHTML(token, session) {
           Your appeal will be reviewed by our moderation team. Please be honest and respectful in your responses.
         </div>
       </form>
+      
+      <a href="/logout" class="logout-link">Logout</a>
     </div>
   </div>
   
@@ -350,6 +639,7 @@ function generateAppealFormHTML(token, session) {
       <h2>Appeal Submitted!</h2>
       <p>Your ban appeal has been successfully submitted to our moderation team.</p>
       <p class="modal-note">You will receive a DM with the decision once your appeal has been reviewed.</p>
+      <button onclick="window.location.reload()" class="modal-button">View Status</button>
     </div>
   </div>
   
@@ -372,7 +662,6 @@ function generateAppealFormHTML(token, session) {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      // Disable submit button
       submitBtn.disabled = true;
       submitBtn.classList.add('loading');
       submitBtn.querySelector('.button-text').textContent = 'Submitting...';
@@ -381,7 +670,7 @@ function generateAppealFormHTML(token, session) {
       const data = Object.fromEntries(formData.entries());
       
       try {
-        const response = await fetch('/appeal/${token}', {
+        const response = await fetch('/appeal/${appealId}', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -420,21 +709,47 @@ function generateAppealFormHTML(token, session) {
   `;
 }
 
-function escapeHtml(text) {
-  const map = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;'
-  };
-  return text.replace(/[&<>"']/g, m => map[m]);
+function generateBanStatusPage(user, bans) {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ban Status - Ban Appeals</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+</head>
+<body>
+  <div class="container">
+    <div class="appeal-card">
+      <div class="header">
+        <h1>Ban Status</h1>
+        <p class="subtitle">Welcome, ${escapeHtml(user.username)}</p>
+      </div>
+      
+      <div class="ban-list">
+        <p>You have ${bans.length} active ban${bans.length !== 1 ? 's' : ''}:</p>
+        ${bans.map(ban => `
+          <div class="ban-item">
+            <p><strong>Server:</strong> Guild ID ${ban.guild_id}</p>
+            <p><strong>Reason:</strong> ${escapeHtml(ban.reason)}</p>
+            <p><strong>Date:</strong> ${new Date(ban.timestamp).toLocaleString()}</p>
+          </div>
+        `).join('')}
+      </div>
+      
+      <p class="info-text">To submit a ban appeal, use the link provided in your ban notification DM.</p>
+      <a href="/logout" class="logout-link">Logout</a>
+    </div>
+  </div>
+</body>
+</html>
+  `;
 }
 
-// Export functions for use by Discord bot
 module.exports = {
   app,
-  createAppealSession,
+  createAppealUrl,
   startServer: (client) => {
     global.discordClient = client;
     app.listen(PORT, () => {

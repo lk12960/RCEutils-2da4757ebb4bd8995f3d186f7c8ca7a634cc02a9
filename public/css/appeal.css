@@ -508,6 +508,191 @@ h1 {
   }
 }
 
+/* Discord Login Button */
+.discord-login-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 32px;
+  background: #5865F2;
+  color: white;
+  text-decoration: none;
+  border-radius: 8px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  margin: 24px 0;
+}
+
+.discord-login-button:hover {
+  background: #4752C4;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(88, 101, 242, 0.4);
+}
+
+.discord-icon {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+}
+
+.login-content {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.login-description {
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  margin-bottom: 20px;
+}
+
+.login-note {
+  margin-top: 24px;
+  padding: 16px;
+  background: rgba(88, 101, 242, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(88, 101, 242, 0.3);
+}
+
+.login-note p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 8px 0;
+}
+
+/* Logout Link */
+.logout-link,
+.logout-button {
+  display: inline-block;
+  margin-top: 24px;
+  padding: 10px 24px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+  font-size: 0.95rem;
+}
+
+.logout-link:hover,
+.logout-button:hover {
+  color: var(--text-primary);
+  border-color: var(--royal-blue);
+  background: rgba(46, 126, 254, 0.1);
+}
+
+/* Status Pages */
+.status-content {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.status-icon {
+  font-size: 4rem;
+  margin-bottom: 20px;
+  animation: bounce 0.6s ease;
+}
+
+.success-status h2 {
+  color: var(--success);
+  margin-bottom: 16px;
+}
+
+.appeal-status-card {
+  background: rgba(46, 126, 254, 0.05);
+  border-radius: 12px;
+  padding: 32px;
+  margin: 24px 0;
+  text-align: center;
+}
+
+.status-icon-large {
+  font-size: 5rem;
+  margin-bottom: 20px;
+  animation: bounce 0.6s ease;
+}
+
+.status-message {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  margin: 16px 0 24px 0;
+}
+
+.cooldown-section {
+  margin-top: 32px;
+  padding: 24px;
+  background: rgba(255, 71, 87, 0.1);
+  border: 1px solid var(--error);
+  border-radius: 12px;
+}
+
+.cooldown-expired {
+  color: var(--success);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.cooldown-active {
+  padding: 16px;
+}
+
+.cooldown-title {
+  color: var(--error);
+  font-size: 1.2rem;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.cooldown-time {
+  color: var(--text-primary);
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 16px 0;
+}
+
+.appeal-details {
+  margin-top: 32px;
+  text-align: left;
+  padding: 20px;
+  background: var(--bg-dark);
+  border-radius: 8px;
+}
+
+.appeal-details h3 {
+  color: var(--royal-blue);
+  margin-bottom: 16px;
+}
+
+/* Ban List */
+.ban-list {
+  margin: 24px 0;
+}
+
+.ban-item {
+  background: var(--bg-dark);
+  padding: 16px;
+  border-radius: 8px;
+  border-left: 4px solid var(--error);
+  margin: 12px 0;
+}
+
+.ban-item p {
+  margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+.ban-item strong {
+  color: var(--text-primary);
+}
+
+.info-text {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-top: 24px;
+  text-align: center;
+}
+
 /* Smooth scrolling */
 html {
   scroll-behavior: smooth;

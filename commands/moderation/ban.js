@@ -43,43 +43,31 @@ module.exports = {
     let dmFailed = false;
     if (sendDm) {
       try {
-        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-        const { createAppealSession } = require('../../appealServer');
-        const { getBanCaseDetails } = require('../../utils/banAppeals');
+        const { createAppealUrl } = require('../../appealServer');
         
-        // Get ban case details if available
-        const banCase = await getBanCaseDetails(target.id, interaction.guild.id).catch(() => null);
-        
-        // Create appeal session with ban details
-        const appealUrl = createAppealSession(target.id, interaction.guild.id, {
+        // Create appeal URL with ban details
+        const appealUrl = createAppealUrl(target.id, interaction.guild.id, {
           reason: reason,
           moderator: interaction.user.tag,
-          caseId: banCase?.case_id || null,
+          caseId: null, // Will be set after ban
           timestamp: Date.now(),
           guildName: interaction.guild.name,
           guildIcon: interaction.guild.iconURL({ size: 256 })
         });
         
-        const appealButton = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`ban_appeal_start:${interaction.guild.id}`)
-            .setLabel('Submit Ban Appeal')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('📝')
-        );
-        
         const banEmbed = new EmbedBuilder()
           .setTitle('You have been banned from King\'s Customs')
           .setDescription(
-            `**Reason:** ${reason}\\n\\n` +
-            `If you believe this ban was unjust, you may submit a ban appeal.\\n\\n` +
-            `**Click the button below to start your appeal:**`
+            `**Reason:** ${reason}\n\n` +
+            `If you believe this ban was unjust, you may submit a ban appeal.\n\n` +
+            `**Appeal Link:**\n${appealUrl}\n\n` +
+            `⚠️ This link expires after 30 days of inactivity.`
           )
           .setColor(0xFF0000)
           .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
           .setTimestamp();
         
-        await target.send({ embeds: [banEmbed], components: [appealButton] });
+        await target.send({ embeds: [banEmbed] });
       } catch (error) {
         console.error('Failed to send DM:', error);
         dmFailed = true;
