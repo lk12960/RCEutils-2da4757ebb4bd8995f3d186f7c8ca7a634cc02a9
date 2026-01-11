@@ -255,9 +255,11 @@ function registerRoutes() {
       avatar: userData.avatar,
     };
     
-    // Redirect to original URL or home
-    const returnTo = req.session.returnTo || '/';
+    // Redirect to original URL (the appeal page they tried to access)
+    const returnTo = req.session.returnTo || '/appeal-home';
     delete req.session.returnTo;
+    
+    console.log(`✅ User ${userData.username} (${userData.id}) authenticated, redirecting to: ${returnTo}`);
     res.redirect(returnTo);
   } catch (error) {
     console.error('OAuth error:', error);
@@ -270,7 +272,7 @@ function registerRoutes() {
    */
   app.get('/logout', (req, res) => {
     req.session.destroy();
-    res.redirect('/');
+    res.redirect('/appeal-home');
   });
 
   /**
