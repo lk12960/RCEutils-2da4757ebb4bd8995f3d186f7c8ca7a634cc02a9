@@ -801,49 +801,57 @@ module.exports = {
         }
       }
       
-      // Ban Appeal: Start appeal process
+      // Ban Appeal: Start appeal process - Generate web form URL
       if (interaction.customId.startsWith('ban_appeal_start:')) {
         const guildId = interaction.customId.split(':')[1];
         
         // Check cooldown
-        const { canUserAppeal } = require('../utils/banAppeals');
-        const canAppeal = await canUserAppeal(interaction.user.id, guildId).catch(() => false);
+        const { canUserAppeal, getBanCaseDetails, getCooldownInfo } = require('../utils/banAppeals');
+        const { createAppealSession } = require('../appealServer');
         
-        if (!canAppeal) {
+        const cooldownInfo = await getCooldownInfo(interaction.user.id, guildId).catch(() => null);
+        
+        if (cooldownInfo) {
           return interaction.reply({ 
-            content: '❌ You have already submitted an appeal recently. You must wait 14 days after a denied appeal before submitting another one.', 
+            content: `⏳ You are currently on cooldown from submitting ban appeals.\n\n**Time Remaining:** ${cooldownInfo.daysRemaining} day${cooldownInfo.daysRemaining !== 1 ? 's' : ''}\n**Can Appeal After:** <t:${Math.floor(cooldownInfo.canAppealAfter.getTime() / 1000)}:F>`, 
             ephemeral: true 
           });
         }
         
-        // Show modal
-        const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require('discord.js');
-        const modal = new ModalBuilder()
-          .setCustomId(`ban_appeal_modal:${guildId}`)
-          .setTitle('Ban Appeal');
+        // Get ban case details
+        const banCase = await getBanCaseDetails(interaction.user.id, guildId).catch(() => null);
+        const guild = interaction.client.guilds.cache.get(guildId);
         
-        const reasonInput = new TextInputBuilder()
-          .setCustomId('reason_for_ban')
-          .setLabel('Explain the actions that led to your ban')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Describe what happened and what you were banned for...')
-          .setRequired(true)
-          .setMaxLength(1000);
+        // Create appeal session with ban details
+        const appealUrl = createAppealSession(interaction.user.id, guildId, {
+          reason: banCase?.reason || 'No reason provided',
+          moderator: banCase?.moderator_tag || 'Unknown',
+          caseId: banCase?.case_id || null,
+          timestamp: banCase?.timestamp || Date.now(),
+          guildName: guild?.name || "King's Customs",
+          guildIcon: guild?.iconURL({ size: 256 }) || null
+        });
         
-        const whyUnbanInput = new TextInputBuilder()
-          .setCustomId('why_unban')
-          .setLabel('Why do you think you should be unbanned?')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Explain why you believe you deserve another chance...')
-          .setRequired(true)
-          .setMaxLength(1000);
+        const { EmbedBuilder } = require('discord.js');
+        const appealEmbed = new EmbedBuilder()
+          .setTitle('📝 Ban Appeal Form')
+          .setDescription(
+            `Your ban appeal form has been generated!\n\n` +
+            `**Click the link below to submit your appeal:**\n` +
+            `🔗 [Open Appeal Form](${appealUrl})\n\n` +
+            `⚠️ **Important:**\n` +
+            `• This link expires in 24 hours\n` +
+            `• You can only submit one appeal per link\n` +
+            `• Be honest and respectful in your responses`
+          )
+          .setColor(0x2E7EFE) // Royal blue
+          .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
+          .setTimestamp();
         
-        modal.addComponents(
-          new ActionRowBuilder().addComponents(reasonInput),
-          new ActionRowBuilder().addComponents(whyUnbanInput)
-        );
-        
-        return interaction.showModal(modal);
+        return interaction.reply({ 
+          embeds: [appealEmbed],
+          ephemeral: true 
+        });
       }
       
       // Ban Appeal: Approve
@@ -2098,6 +2106,8 @@ module.exports = {
         return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason, ticketId: meta.ticketId });
       }
       
+      // OLD MODAL HANDLER - NO LONGER USED (Web form is used instead)
+      /*
       if (interaction.customId.startsWith('ban_appeal_modal:')) {
         await interaction.deferReply({ ephemeral: true });
         const guildId = interaction.customId.split(':')[1];
@@ -2161,6 +2171,7 @@ module.exports = {
           return interaction.editReply({ content: '❌ Failed to submit appeal. Please contact a moderator.' });
         }
       }
+      */
       
       if (interaction.customId.startsWith('order_edit_designer_modal:')) {
         await interaction.deferUpdate();

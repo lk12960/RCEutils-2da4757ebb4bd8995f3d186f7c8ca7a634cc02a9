@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, Collection, GatewayIntentBits } = require('discord.js');
+const { Client, Collection, GatewayIntentBits, Partials } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -15,7 +15,17 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMessageReactions,
-    GatewayIntentBits.GuildMessageTyping
+    GatewayIntentBits.GuildMessageTyping,
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildEmojisAndStickers,
+    GatewayIntentBits.GuildBans,
+  ],
+  partials: [
+    Partials.Message,
+    Partials.Channel, 
+    Partials.Reaction,
+    Partials.GuildMember,
+    Partials.User
   ],
 });
 
@@ -92,6 +102,14 @@ client.once('ready', async () => {
       console.error('Failed to update bot status:', err);
     }
   }, 150000); // 150000 ms = 2.5 minutes
+  
+  // Start ban appeal web server
+  try {
+    const { startServer } = require('./appealServer');
+    startServer(client);
+  } catch (err) {
+    console.error('Failed to start appeal server:', err);
+  }
 });
 
 const TOKEN = (process.env.TOKEN || '').trim();

@@ -111,10 +111,59 @@ function denyBanAppeal(appealId, reviewerId) {
   });
 }
 
+/**
+ * Get ban case details for a user
+ */
+function getBanCaseDetails(userId, guildId) {
+  return new Promise((resolve, reject) => {
+    const caseDb = require('../database/db');
+    caseDb.get(
+      `SELECT * FROM cases WHERE user_id = ? AND guild_id = ? AND action = 'BAN' ORDER BY timestamp DESC LIMIT 1`,
+      [String(userId), String(guildId)],
+      (err, row) => {
+        if (err) return reject(err);
+        resolve(row || null);
+      }
+    );
+  });
+}
+
+/**
+ * Get cooldown information for a user
+ */
+function getCooldownInfo(userId, guildId) {
+  return new Promise((resolve, reject) => {
+    db.get(
+      `SELECT can_appeal_after FROM ban_appeals 
+       WHERE user_id = ? AND guild_id = ? AND status = 'denied' 
+       ORDER BY created_at DESC LIMIT 1`,
+      [String(userId), String(guildId)],
+      (err, row) => {
+        if (err) return reject(err);
+        if (!row || !row.can_appeal_after) return resolve(null);
+        
+        const cooldownEnd = new Date(row.can_appeal_after);
+        const now = new Date();
+        
+        if (now >= cooldownEnd) {
+          return resolve(null); // Cooldown expired
+        }
+        
+        resolve({
+          canAppealAfter: cooldownEnd,
+          daysRemaining: Math.ceil((cooldownEnd - now) / (1000 * 60 * 60 * 24))
+        });
+      }
+    );
+  });
+}
+
 module.exports = {
   canUserAppeal,
   createBanAppeal,
   getBanAppeal,
   approveBanAppeal,
-  denyBanAppeal
+  denyBanAppeal,
+  getBanCaseDetails,
+  getCooldownInfo
 };

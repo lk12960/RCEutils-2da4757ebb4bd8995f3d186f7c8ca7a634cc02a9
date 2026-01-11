@@ -15,7 +15,7 @@ module.exports = {
     .addStringOption(option =>
       option
         .setName('userid')
-        .setDescription('The user ID of the person to unban')
+        .setDescription('User ID or mention of the person to unban')
         .setRequired(true)
     )
     .addStringOption(option =>
@@ -40,9 +40,14 @@ module.exports = {
       });
     }
 
-    const userId = interaction.options.getString('userid');
+    let userInput = interaction.options.getString('userid');
     const reason = interaction.options.getString('reason') || 'No reason provided';
     const sendDm = interaction.options.getBoolean('senddm') ?? false;
+
+    // Extract user ID from mention or use as-is
+    // Discord mentions are in format <@123456789> or <@!123456789>
+    const mentionMatch = userInput.match(/^<@!?(\d+)>$/);
+    const userId = mentionMatch ? mentionMatch[1] : userInput;
 
     let banInfo;
     try {
@@ -65,16 +70,14 @@ module.exports = {
     }
 
     // Send DM to the user if sendDm is true
+    let dmFailed = false;
     if (sendDm) {
       try {
         const user = await interaction.client.users.fetch(userId);
         await user.send(`You have been unbanned from King's Customs.`);
       } catch (error) {
         console.error('Failed to send DM:', error);
-        await interaction.followUp({
-          content: `⚠️ Could not send DM to ${banInfo.user.tag}. They may have DMs disabled.`,
-          ephemeral: true,
-        });
+        dmFailed = true;
       }
     }
 
@@ -98,7 +101,7 @@ module.exports = {
     }
 
     await interaction.reply({
-      content: `✅ Successfully unbanned **${banInfo.user.tag}** (ID: ${userId})\n🆔 Case #${caseId}${sendDm ? '\n📩 DM sent to user' : ''}`,
+      content: `✅ Successfully unbanned **${banInfo.user.tag}** (ID: ${userId})\\n🆔 Case #${caseId}${sendDm ? (dmFailed ? '\\n⚠️ Could not send DM (user may have DMs disabled)' : '\\n📩 DM sent to user') : ''}`,
       ephemeral: false,
     });
   },
