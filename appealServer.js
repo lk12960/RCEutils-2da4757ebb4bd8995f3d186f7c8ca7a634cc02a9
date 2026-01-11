@@ -1,7 +1,10 @@
 // Ban Appeal Web Server with Discord OAuth
 const express = require('express');
 const session = require('express-session');
+const FileStore = require('session-file-store')(session);
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { getBanAppeal, getBanCaseDetails, getCooldownInfo, createBanAppeal } = require('./utils/banAppeals');
 
 const app = express();
@@ -10,6 +13,12 @@ const BASE_URL = process.env.APPEAL_BASE_URL || `http://localhost:${PORT}`;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = `${BASE_URL}/auth/discord/callback`;
+
+// Create sessions directory if it doesn't exist
+const sessionsDir = path.join(__dirname, 'sessions');
+if (!fs.existsSync(sessionsDir)) {
+  fs.mkdirSync(sessionsDir, { recursive: true });
+}
 
 // Store appeal data (appealId -> { userId, guildId, createdAt, expiresAt })
 const appealData = new Map();
@@ -28,6 +37,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 app.use(session({
+  store: new FileStore({
+    path: sessionsDir,
+    ttl: 86400, // 24 hours in seconds
+    retries: 2,
+    reapInterval: 3600, // Cleanup expired sessions every hour
+    logFn: () => {} // Suppress logs
+  }),
   secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
