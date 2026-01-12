@@ -86,6 +86,9 @@ setInterval(() => {
 function initializeApp(expressApp) {
   app = expressApp;
   
+  // Ensure static files are served (CSS, images, etc.)
+  app.use(express.static('public'));
+  
   // These might already be set up by main app, but ensure they're available
   if (!app._json_parser) {
     app.use(express.json());
@@ -117,6 +120,7 @@ function initializeApp(expressApp) {
   app.use(sessionMiddleware);
   
   console.log('📝 Session middleware registered');
+  console.log('🎨 Static files being served from /public');
   
   registerRoutes();
 }
