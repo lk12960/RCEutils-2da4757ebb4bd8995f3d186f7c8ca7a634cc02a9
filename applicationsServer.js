@@ -101,6 +101,223 @@ function registerApplicationRoutes(app) {
     }
   });
 
+  // ============================================================================
+  // ADMIN ROUTES - Must be registered BEFORE /:formId route
+  // ============================================================================
+  
+  // Admin dashboard
+  app.get('/applications/admin', requireAdmin, async (req, res) => {
+    try {
+      const forms = await getAllForms();
+      const formsWithCounts = await Promise.all(forms.map(async (form) => {
+        const submissions = await getFormSubmissions(form.id);
+        const pending = submissions.filter(s => s.status === 'submitted').length;
+        const accepted = submissions.filter(s => s.status === 'accepted').length;
+        const denied = submissions.filter(s => s.status === 'denied').length;
+        return {
+          ...form,
+          totalSubmissions: submissions.length,
+          pendingReview: pending,
+          acceptedCount: accepted,
+          deniedCount: denied
+        };
+      }));
+      
+      res.send(generateAdminDashboard(req.session.user, formsWithCounts));
+    } catch (error) {
+      console.error('Error loading admin dashboard:', error);
+      res.status(500).send('Failed to load dashboard');
+    }
+  });
+
+  // View all submissions for a form
+  app.get('/applications/admin/submissions', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.query.form);
+      if (!formId) return res.redirect('/applications/admin');
+      
+      const form = await getFormById(formId);
+      const submissions = await getFormSubmissions(formId);
+      
+      res.send(generateSubmissionsListPage(req.session.user, form, submissions));
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      res.status(500).send('Failed to load submissions');
+    }
+  });
+
+  // List submissions for review
+  app.get('/applications/admin/review', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.query.form);
+      if (!formId) {
+        return res.redirect('/applications/admin');
+      }
+      
+      const submissions = await getFormSubmissions(formId, 'submitted');
+      if (submissions.length === 0) {
+        return res.send(`
+<!DOCTYPE html>
+<html><head><title>No Submissions</title><link rel="stylesheet" href="/css/appeal.css"></head>
+<body><div class="container"><div class="appeal-card">
+<h1>No Pending Submissions</h1>
+<p>There are no pending submissions to review.</p>
+<a href="/applications/admin">← Back to Dashboard</a>
+</div></div></body></html>
+        `);
+      }
+      
+      res.redirect(\`/applications/admin/review/\${submissions[0].id}\`);
+    } catch (error) {
+      console.error('Error listing submissions:', error);
+      res.status(500).send('Failed to load submissions');
+    }
+  });
+
+  // Review application
+  app.get('/applications/admin/review/:submissionId', requireAdmin, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.submissionId);
+      const submission = await getSubmissionById(submissionId);
+      
+      if (!submission) {
+        return res.status(404).send('Submission not found');
+      }
+      
+      const form = await getFormById(submission.form_id);
+      const questions = JSON.parse(form.questions);
+      const responses = JSON.parse(submission.responses);
+      
+      const allSubmissions = await getFormSubmissions(submission.form_id, 'submitted');
+      
+      res.send(generateReviewPage(req.session.user, form, submission, questions, responses, allSubmissions));
+    } catch (error) {
+      console.error('Error loading review page:', error);
+      res.status(500).send('Failed to load submission');
+    }
+  });
+
+  // Submit review decision
+  app.post('/applications/admin/review/:submissionId', requireAdmin, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.submissionId);
+      const { action, customStatus } = req.body;
+      const reviewerId = req.session.user.id;
+      
+      let status = action;
+      
+      await reviewSubmission(submissionId, reviewerId, status, customStatus);
+      
+      try {
+        await sendReviewNotification(submissionId, status, customStatus, reviewerId);
+      } catch (err) {
+        console.error('Failed to send review notification:', err);
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error submitting review:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Form builder
+  app.get('/applications/admin/builder', requireAdmin, (req, res) => {
+    res.send(generateFormBuilder(req.session.user));
+  });
+
+  // Create new form
+  app.post('/applications/admin/builder', requireAdmin, rateLimit(10, 60000), async (req, res) => {
+    try {
+      const { name, description, questions, requirements, settings } = req.body;
+      const createdBy = req.session.user.id;
+      
+      const { validateFormData, validateQuestion, sanitizeText } = require('./utils/validator');
+      
+      const validation = validateFormData({ name, description, questions });
+      if (!validation.valid) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Validation failed', 
+          errors: validation.errors 
+        });
+      }
+      
+      for (const q of questions) {
+        if (!validateQuestion(q)) {
+          return res.status(400).json({ 
+            success: false, 
+            message: \`Invalid question: \${q.question || 'Unknown'}\` 
+          });
+        }
+      }
+      
+      const sanitizedName = sanitizeText(name);
+      const sanitizedDescription = sanitizeText(description);
+      
+      const formId = await createForm(sanitizedName, sanitizedDescription, questions, requirements || {}, createdBy, settings || {});
+      
+      res.json({ success: true, formId });
+    } catch (error) {
+      console.error('Error creating form:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // Export submissions
+  app.get('/applications/admin/export/:formId', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.params.formId);
+      const format = req.query.format || 'json';
+      
+      const form = await getFormById(formId);
+      const submissions = await getFormSubmissions(formId);
+      
+      if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', \`attachment; filename="\${form.name}_submissions.json"\`);
+        res.send(JSON.stringify(submissions, null, 2));
+      } else if (format === 'csv') {
+        const csv = generateCSV(form, submissions);
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', \`attachment; filename="\${form.name}_submissions.csv"\`);
+        res.send(csv);
+      }
+    } catch (error) {
+      console.error('Error exporting submissions:', error);
+      res.status(500).send('Export failed');
+    }
+  });
+
+  // Delete form
+  app.delete('/applications/admin/forms/:formId', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.params.formId);
+      const db = require('./database/applications');
+      
+      await new Promise((resolve, reject) => {
+        db.run('DELETE FROM application_submissions WHERE form_id = ?', [formId], (err) => {
+          err ? reject(err) : resolve();
+        });
+      });
+      
+      await new Promise((resolve, reject) => {
+        db.run('DELETE FROM application_forms WHERE id = ?', [formId], (err) => {
+          err ? reject(err) : resolve();
+        });
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting form:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ============================================================================
+  // PUBLIC ROUTES
+  // ============================================================================
+  
   // View/submit specific application
   app.get('/applications/:formId', requireAuth, async (req, res) => {
     try {
@@ -215,224 +432,6 @@ function registerApplicationRoutes(app) {
     }
   });
 
-  // Admin dashboard
-  app.get('/applications/admin', requireAdmin, async (req, res) => {
-    try {
-      const forms = await getAllForms();
-      const formsWithCounts = await Promise.all(forms.map(async (form) => {
-        const submissions = await getFormSubmissions(form.id);
-        const pending = submissions.filter(s => s.status === 'submitted').length;
-        const accepted = submissions.filter(s => s.status === 'accepted').length;
-        const denied = submissions.filter(s => s.status === 'denied').length;
-        return {
-          ...form,
-          totalSubmissions: submissions.length,
-          pendingReview: pending,
-          acceptedCount: accepted,
-          deniedCount: denied
-        };
-      }));
-      
-      res.send(generateAdminDashboard(req.session.user, formsWithCounts));
-    } catch (error) {
-      console.error('Error loading admin dashboard:', error);
-      res.status(500).send('Failed to load dashboard');
-    }
-  });
-
-  // View all submissions for a form
-  app.get('/applications/admin/submissions', requireAdmin, async (req, res) => {
-    try {
-      const formId = parseInt(req.query.form);
-      if (!formId) return res.redirect('/applications/admin');
-      
-      const form = await getFormById(formId);
-      const submissions = await getFormSubmissions(formId);
-      
-      res.send(generateSubmissionsListPage(req.session.user, form, submissions));
-    } catch (error) {
-      console.error('Error loading submissions:', error);
-      res.status(500).send('Failed to load submissions');
-    }
-  });
-
-  // Delete form
-  app.delete('/applications/admin/forms/:formId', requireAdmin, async (req, res) => {
-    try {
-      const formId = parseInt(req.params.formId);
-      const db = require('./database/applications');
-      
-      // Delete submissions first
-      await new Promise((resolve, reject) => {
-        db.run('DELETE FROM application_submissions WHERE form_id = ?', [formId], (err) => {
-          err ? reject(err) : resolve();
-        });
-      });
-      
-      // Delete form
-      await new Promise((resolve, reject) => {
-        db.run('DELETE FROM application_forms WHERE id = ?', [formId], (err) => {
-          err ? reject(err) : resolve();
-        });
-      });
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error deleting form:', error);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  });
-
-  // List submissions for review
-  app.get('/applications/admin/review', requireAdmin, async (req, res) => {
-    try {
-      const formId = parseInt(req.query.form);
-      if (!formId) {
-        return res.redirect('/applications/admin');
-      }
-      
-      const submissions = await getFormSubmissions(formId, 'submitted');
-      if (submissions.length === 0) {
-        return res.send(`
-<!DOCTYPE html>
-<html><head><title>No Submissions</title><link rel="stylesheet" href="/css/appeal.css"></head>
-<body><div class="container"><div class="appeal-card">
-<h1>No Pending Submissions</h1>
-<p>There are no pending submissions to review.</p>
-<a href="/applications/admin">← Back to Dashboard</a>
-</div></div></body></html>
-        `);
-      }
-      
-      // Redirect to first submission
-      res.redirect(`/applications/admin/review/${submissions[0].id}`);
-    } catch (error) {
-      console.error('Error listing submissions:', error);
-      res.status(500).send('Failed to load submissions');
-    }
-  });
-
-  // Review application
-  app.get('/applications/admin/review/:submissionId', requireAdmin, async (req, res) => {
-    try {
-      const submissionId = parseInt(req.params.submissionId);
-      const submission = await getSubmissionById(submissionId);
-      
-      if (!submission) {
-        return res.status(404).send('Submission not found');
-      }
-      
-      const form = await getFormById(submission.form_id);
-      const questions = JSON.parse(form.questions);
-      const responses = JSON.parse(submission.responses);
-      
-      // Get all submissions for this form for navigation
-      const allSubmissions = await getFormSubmissions(submission.form_id, 'submitted');
-      
-      res.send(generateReviewPage(req.session.user, form, submission, questions, responses, allSubmissions));
-    } catch (error) {
-      console.error('Error loading review page:', error);
-      res.status(500).send('Failed to load submission');
-    }
-  });
-
-  // Submit review decision
-  app.post('/applications/admin/review/:submissionId', requireAdmin, async (req, res) => {
-    try {
-      const submissionId = parseInt(req.params.submissionId);
-      const { action, customStatus } = req.body;
-      const reviewerId = req.session.user.id;
-      
-      let status = action; // 'accepted', 'denied', or 'custom'
-      
-      await reviewSubmission(submissionId, reviewerId, status, customStatus);
-      
-      // Send notification to Discord and user
-      try {
-        await sendReviewNotification(submissionId, status, customStatus, reviewerId);
-      } catch (err) {
-        console.error('Failed to send review notification:', err);
-      }
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error submitting review:', error);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  });
-
-  // Form builder
-  app.get('/applications/admin/builder', requireAdmin, (req, res) => {
-    res.send(generateFormBuilder(req.session.user));
-  });
-
-  // Create new form
-  app.post('/applications/admin/builder', requireAdmin, rateLimit(10, 60000), async (req, res) => {
-    try {
-      const { name, description, questions, requirements, settings } = req.body;
-      const createdBy = req.session.user.id;
-      
-      // Validate form data
-      const { validateFormData, validateQuestion, sanitizeText } = require('./utils/validator');
-      
-      const validation = validateFormData({ name, description, questions });
-      if (!validation.valid) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Validation failed', 
-          errors: validation.errors 
-        });
-      }
-      
-      // Validate each question
-      for (const q of questions) {
-        if (!validateQuestion(q)) {
-          return res.status(400).json({ 
-            success: false, 
-            message: `Invalid question: ${q.question || 'Unknown'}` 
-          });
-        }
-      }
-      
-      // Sanitize text fields
-      const sanitizedName = sanitizeText(name);
-      const sanitizedDescription = sanitizeText(description);
-      
-      const formId = await createForm(sanitizedName, sanitizedDescription, questions, requirements || {}, createdBy, settings || {});
-      
-      res.json({ success: true, formId });
-    } catch (error) {
-      console.error('Error creating form:', error);
-      res.status(500).json({ success: false, message: error.message });
-    }
-  });
-
-  // Export submissions
-  app.get('/applications/admin/export/:formId', requireAdmin, async (req, res) => {
-    try {
-      const formId = parseInt(req.params.formId);
-      const format = req.query.format || 'json';
-      
-      const form = await getFormById(formId);
-      const submissions = await getFormSubmissions(formId);
-      
-      if (format === 'json') {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', `attachment; filename="${form.name}_submissions.json"`);
-        res.send(JSON.stringify(submissions, null, 2));
-      } else if (format === 'csv') {
-        const csv = generateCSV(form, submissions);
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="${form.name}_submissions.csv"`);
-        res.send(csv);
-      }
-    } catch (error) {
-      console.error('Error exporting submissions:', error);
-      res.status(500).send('Export failed');
-    }
-  });
-
-  console.log('✅ Application routes registered successfully');
   console.log('   - /applications (public)');
   console.log('   - /applications/admin (admin dashboard)');
   console.log('   - /applications/admin/builder (form builder)');
