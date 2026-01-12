@@ -14,6 +14,13 @@ const {
 } = require('./utils/applicationsManager');
 
 function registerApplicationRoutes(app) {
+  console.log('🔧 Registering application routes on app:', !!app);
+  
+  if (!app) {
+    console.error('❌ No app provided to registerApplicationRoutes!');
+    return;
+  }
+  
   const { rateLimit, applicationSubmitLimit } = require('./utils/rateLimiter');
   
   const requireAuth = (req, res, next) => {
@@ -425,7 +432,10 @@ function registerApplicationRoutes(app) {
     }
   });
 
-  console.log('✅ Application routes registered');
+  console.log('✅ Application routes registered successfully');
+  console.log('   - /applications (public)');
+  console.log('   - /applications/admin (admin dashboard)');
+  console.log('   - /applications/admin/builder (form builder)');
 }
 
 // Helper functions for Discord notifications
