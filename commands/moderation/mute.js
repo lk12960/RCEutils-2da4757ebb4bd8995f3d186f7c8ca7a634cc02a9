@@ -72,7 +72,7 @@ module.exports = {
 
     await member.timeout(durationMs, reason);
 
-    const caseId = await createCase(target.id, interaction.user.id, 'Mute', reason);
+    const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Mute', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

@@ -40,7 +40,7 @@ module.exports = {
       return message.reply('❌ Failed to unmute the user.');
     }
 
-    const caseId = await createCase(targetId, message.author.id, 'Unmute', reason);
+    const caseId = await createCase(message.guild.id, targetId, message.author.id, 'Unmute', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

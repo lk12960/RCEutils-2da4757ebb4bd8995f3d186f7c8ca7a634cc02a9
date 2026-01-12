@@ -50,7 +50,7 @@ module.exports = {
       }
     }
 
-    const caseId = await createCase(target.id, interaction.user.id, 'Warn', reason);
+    const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Warn', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

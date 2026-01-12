@@ -30,7 +30,7 @@ module.exports = {
     try {
       await member.kick(reason);
 
-      const caseId = await createCase(target.id, message.author.id, 'Kick', reason);
+      const caseId = await createCase(message.guild.id, target.id, message.author.id, 'Kick', reason);
       const timestamp = new Date();
 
       const embed = {

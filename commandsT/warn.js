@@ -26,7 +26,7 @@ module.exports = {
     // Reason is rest of the arguments after user
     const reason = args.slice(1).join(' ') || 'No reason provided';
 
-    const caseId = await createCase(target.id, message.author.id, 'Warn', reason);
+    const caseId = await createCase(message.guild.id, target.id, message.author.id, 'Warn', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

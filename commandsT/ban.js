@@ -30,7 +30,7 @@ module.exports = {
       return message.reply('❌ I could not ban this user. Do I have the correct permissions?');
     }
 
-    const caseId = await createCase(user.id, message.author.id, 'Ban', reason);
+    const caseId = await createCase(message.guild.id, user.id, message.author.id, 'Ban', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

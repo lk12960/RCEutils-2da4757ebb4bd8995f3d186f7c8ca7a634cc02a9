@@ -89,7 +89,7 @@ module.exports = {
       });
     }
 
-    const caseId = await createCase(target.id, interaction.user.id, 'Ban', reason);
+    const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Ban', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

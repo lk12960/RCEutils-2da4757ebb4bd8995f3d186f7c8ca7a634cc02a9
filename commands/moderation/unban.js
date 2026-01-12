@@ -81,7 +81,7 @@ module.exports = {
       }
     }
 
-    const caseId = await createCase(userId, interaction.user.id, 'Unban', reason);
+    const caseId = await createCase(interaction.guild.id, userId, interaction.user.id, 'Unban', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

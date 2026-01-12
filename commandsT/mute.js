@@ -46,7 +46,7 @@ module.exports = {
       return message.reply('❌ Failed to mute the user.');
     }
 
-    const caseId = await createCase(target.id, message.author.id, 'Mute', reason);
+    const caseId = await createCase(message.guild.id, target.id, message.author.id, 'Mute', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

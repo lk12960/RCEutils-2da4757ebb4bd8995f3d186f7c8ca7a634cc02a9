@@ -44,7 +44,7 @@ module.exports = {
       return interaction.reply({ content: '❌ Failed to unmute the user.', ephemeral: true });
     }
 
-    const caseId = await createCase(target.id, interaction.user.id, 'Unmute', reason);
+    const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Unmute', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

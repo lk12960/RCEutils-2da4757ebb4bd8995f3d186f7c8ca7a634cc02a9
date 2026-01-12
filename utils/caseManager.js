@@ -1,13 +1,13 @@
 const db = require('../database/db');
 
 // ✅ Create a new case
-function createCase(userId, moderatorId, action, reason) {
+function createCase(guildId, userId, moderatorId, action, reason) {
   return new Promise((resolve, reject) => {
     const timestamp = new Date().toISOString();
     db.run(
-      `INSERT INTO cases (user_id, moderator_id, action, reason, timestamp, voided)
-       VALUES (?, ?, ?, ?, ?, 0)`,
-      [userId, moderatorId, action, reason, timestamp],
+      `INSERT INTO cases (guild_id, user_id, moderator_id, action, reason, timestamp, voided)
+       VALUES (?, ?, ?, ?, ?, ?, 0)`,
+      [guildId, userId, moderatorId, action, reason, timestamp],
       function (err) {
         if (err) {
           console.error('Failed to create case:', err);

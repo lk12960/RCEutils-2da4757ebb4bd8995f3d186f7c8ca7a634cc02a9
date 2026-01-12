@@ -39,7 +39,7 @@ module.exports = {
       return message.reply('❌ Failed to unban the user. Do I have the correct permissions?');
     }
 
-    const caseId = await createCase(userId, message.author.id, 'Unban', reason);
+    const caseId = await createCase(message.guild.id, userId, message.author.id, 'Unban', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

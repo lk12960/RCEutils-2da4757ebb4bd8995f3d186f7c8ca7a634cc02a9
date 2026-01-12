@@ -56,7 +56,7 @@ module.exports = {
 
     await member.kick(reason);
 
-    const caseId = await createCase(target.id, interaction.user.id, 'Kick', reason);
+    const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Kick', reason);
     const timestamp = new Date();
 
     const embed = new EmbedBuilder()

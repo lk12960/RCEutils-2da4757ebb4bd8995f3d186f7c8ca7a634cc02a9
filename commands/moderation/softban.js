@@ -41,7 +41,7 @@ module.exports = {
       await interaction.guild.bans.remove(target.id, 'Softban: immediate unban');
 
       // Create case and log
-      const caseId = await createCase(target.id, interaction.user.id, 'Softban', reason);
+      const caseId = await createCase(interaction.guild.id, target.id, interaction.user.id, 'Softban', reason);
       const timestamp = new Date();
 
       const embed = new EmbedBuilder()
