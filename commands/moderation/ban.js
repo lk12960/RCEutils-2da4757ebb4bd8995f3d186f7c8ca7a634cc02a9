@@ -61,7 +61,10 @@ module.exports = {
             `**Reason:** ${reason}\n\n` +
             `If you believe this ban was unjust, you may submit a ban appeal.\n\n` +
             `**Appeal Link:**\n${appealUrl}\n\n` +
-            `⚠️ This link expires after 30 days of inactivity.`
+            `⚠️ **Important:**\n` +
+            `• This link expires after 30 days of inactivity\n` +
+            `• If you don't receive a response within 24-48 hours, return to this link to check your appeal status\n` +
+            `• You will also be notified via DM once your appeal is reviewed`
           )
           .setColor(0xFF0000)
           .setFooter({ text: 'Ban appeals are reviewed by our moderation team' })
