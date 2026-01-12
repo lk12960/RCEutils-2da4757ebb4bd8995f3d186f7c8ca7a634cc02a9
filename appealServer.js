@@ -86,10 +86,14 @@ setInterval(() => {
 function initializeApp(expressApp) {
   app = expressApp;
   
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(express.static('public'));
-  app.use(session({
+  // These might already be set up by main app, but ensure they're available
+  if (!app._json_parser) {
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+  }
+  
+  // Session must be set BEFORE routes
+  const sessionMiddleware = session({
     store: new FileStore({
       path: sessionsDir,
       ttl: 86400, // 24 hours in seconds
@@ -98,16 +102,21 @@ function initializeApp(expressApp) {
       logFn: () => {} // Suppress logs
     }),
     secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
-    resave: false,
+    resave: true, // Changed to true to ensure saves
     saveUninitialized: false,
     name: 'appeal_session', // Use different cookie name to avoid conflicts
     cookie: { 
-      secure: process.env.NODE_ENV === 'production',
+      secure: false, // Set to false for testing, should be true in production with HTTPS
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
       sameSite: 'lax' // Important for OAuth redirects
     }
-  }));
+  });
+  
+  // Apply session to all routes
+  app.use(sessionMiddleware);
+  
+  console.log('📝 Session middleware registered');
   
   registerRoutes();
 }
@@ -140,11 +149,18 @@ function createAppealUrl(userId, guildId, banInfo) {
 // MIDDLEWARE: Authentication Check
 // ============================================================================
 function requireAuth(req, res, next) {
-  if (!req.session.user) {
+  console.log(`🔍 Auth check for ${req.originalUrl} - Session user:`, req.session?.user?.username || 'NOT LOGGED IN');
+  
+  if (!req.session || !req.session.user) {
     // Store the original URL they tried to access
-    req.session.returnTo = req.originalUrl;
+    if (req.session) {
+      req.session.returnTo = req.originalUrl;
+    }
+    console.log(`❌ No auth, redirecting to /login`);
     return res.redirect('/login');
   }
+  
+  console.log(`✅ Auth OK for user ${req.session.user.username}`);
   next();
 }
 
