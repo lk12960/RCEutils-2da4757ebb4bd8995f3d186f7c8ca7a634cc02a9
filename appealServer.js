@@ -507,11 +507,9 @@ function registerRoutes() {
                 .setEmoji('❌')
             );
             
-            // Get management role 1 ID for ping
-            const { tierRole } = require('./utils/rolesManager');
-            const managementRoleId = tierRole(guild.id, 'management1') || process.env.MANAGEMENT_ROLE_1_ID;
-            
-            const pingContent = managementRoleId ? `<@&${managementRoleId}>` : '';
+            // Hardcoded management role ping
+            const managementRoleId = '1411100904949682236';
+            const pingContent = `<@&${managementRoleId}>`;
             
             await appealsChannel.send({ 
               content: pingContent,
