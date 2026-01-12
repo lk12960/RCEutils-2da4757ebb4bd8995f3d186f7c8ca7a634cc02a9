@@ -5,6 +5,51 @@ module.exports = {
   name: 'guildMemberAdd',
 
   async execute(member) {
+    // Welcome message system
+    const WELCOME_CHANNEL_ID = '1411101159342473399';
+    const WELCOME_ROLE_ID = '1419329244118384814';
+    
+    try {
+      // Add welcome role
+      const welcomeRole = member.guild.roles.cache.get(WELCOME_ROLE_ID);
+      if (welcomeRole) {
+        await member.roles.add(welcomeRole);
+        console.log(`✅ Added welcome role to ${member.user.tag}`);
+      }
+      
+      // Send welcome message
+      const welcomeChannel = member.guild.channels.cache.get(WELCOME_CHANNEL_ID);
+      if (welcomeChannel) {
+        const { ButtonBuilder, ActionRowBuilder, ButtonStyle } = require('discord.js');
+        
+        const memberCount = member.guild.memberCount;
+        
+        const orderButton = new ButtonBuilder()
+          .setLabel('Order Here')
+          .setStyle(ButtonStyle.Link)
+          .setURL('https://discord.com/channels/1297697183503745066/1457494227566067895');
+        
+        const memberCountButton = new ButtonBuilder()
+          .setLabel(`${memberCount}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji({ id: '1361379290977140796', name: 'Person1', animated: false })
+          .setDisabled(true)
+          .setCustomId('member_count_display');
+        
+        const row = new ActionRowBuilder().addComponents(orderButton, memberCountButton);
+        
+        await welcomeChannel.send({
+          content: `<:KCoutlined:1460101719852843018> Welcome to **King's Customs**, ${member.user}. Please visit our <#1304893788388593664> for more information.`,
+          components: [row]
+        });
+        
+        console.log(`✅ Sent welcome message for ${member.user.tag}`);
+      }
+    } catch (error) {
+      console.error('Error in welcome system:', error);
+    }
+    
+    // Continue with existing audit log code
     try { await (require('../utils/stats').track)('member_join', 1, member.guild.id); } catch {}
 
     const welcomeChannelId = '1389342280695156840';
