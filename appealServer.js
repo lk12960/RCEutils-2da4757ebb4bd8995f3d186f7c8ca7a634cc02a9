@@ -86,6 +86,17 @@ setInterval(() => {
 function initializeApp(expressApp) {
   app = expressApp;
   
+  // Check if session middleware already exists
+  const hasSession = app._router && app._router.stack.some(layer => 
+    layer.name === 'session' || (layer.handle && layer.handle.name === 'session')
+  );
+  
+  if (hasSession) {
+    console.log('📝 Session middleware already registered, skipping');
+    registerRoutes();
+    return;
+  }
+  
   // Ensure static files are served (CSS, images, etc.)
   app.use(express.static('public'));
   
@@ -438,8 +449,10 @@ function registerRoutes() {
     
     // Create appeal
     const appealDbId = await createBanAppeal(appeal.userId, appeal.guildId, reason_for_ban, why_unban);
+    console.log(`📝 Created appeal in database: ID ${appealDbId} for user ${appeal.userId}`);
     
     // Send to appeals channel
+    let channelSent = false;
     if (global.discordClient) {
       const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
       const guild = global.discordClient.guilds.cache.get(appeal.guildId);
@@ -449,63 +462,81 @@ function registerRoutes() {
         const appealsChannel = guild.channels.cache.get(APPEALS_CHANNEL_ID);
         
         if (appealsChannel) {
-          const user = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
-          
-          const appealEmbed = new EmbedBuilder()
-            .setTitle('📝 New Ban Appeal')
-            .setColor(0x2E7EFE)
-            .addFields([
-              { name: '👤 User', value: user ? `${user.tag} (<@${appeal.userId}>)` : `<@${appeal.userId}>`, inline: true },
-              { name: '🆔 User ID', value: appeal.userId, inline: true },
-              { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
-              { name: '📋 What led to your ban?', value: reason_for_ban, inline: false },
-              { name: '❓ Why should you be unbanned?', value: why_unban, inline: false }
-            ])
-            .setFooter({ text: `Appeal ID: ${appealDbId}` })
-            .setTimestamp();
-          
-          if (user && user.avatarURL()) {
-            appealEmbed.setThumbnail(user.avatarURL());
+          try {
+            const user = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
+            
+            const appealEmbed = new EmbedBuilder()
+              .setTitle('📝 New Ban Appeal')
+              .setColor(0x2E7EFE)
+              .addFields([
+                { name: '👤 User', value: user ? `${user.tag} (<@${appeal.userId}>)` : `<@${appeal.userId}>`, inline: true },
+                { name: '🆔 User ID', value: appeal.userId, inline: true },
+                { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
+                { name: '📋 What led to your ban?', value: reason_for_ban, inline: false },
+                { name: '❓ Why should you be unbanned?', value: why_unban, inline: false }
+              ])
+              .setFooter({ text: `Appeal ID: ${appealDbId}` })
+              .setTimestamp();
+            
+            if (user && user.avatarURL()) {
+              appealEmbed.setThumbnail(user.avatarURL());
+            }
+            
+            if (appeal.banInfo) {
+              if (appeal.banInfo.reason) {
+                appealEmbed.addFields({ name: '⚖️ Ban Reason', value: appeal.banInfo.reason, inline: false });
+              }
+              if (appeal.banInfo.moderator) {
+                appealEmbed.addFields({ name: '👮 Banned By', value: appeal.banInfo.moderator, inline: true });
+              }
+              if (appeal.banInfo.caseId) {
+                appealEmbed.addFields({ name: '🔢 Case ID', value: `#${appeal.banInfo.caseId}`, inline: true });
+              }
+            }
+            
+            const buttons = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`ban_appeal_approve:${appealDbId}`)
+                .setLabel('Approve')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('✅'),
+              new ButtonBuilder()
+                .setCustomId(`ban_appeal_deny:${appealDbId}`)
+                .setLabel('Deny')
+                .setStyle(ButtonStyle.Danger)
+                .setEmoji('❌')
+            );
+            
+            // Get management role 1 ID for ping
+            const { tierRole } = require('./utils/rolesManager');
+            const managementRoleId = tierRole(guild.id, 'management1') || process.env.MANAGEMENT_ROLE_1_ID;
+            
+            const pingContent = managementRoleId ? `<@&${managementRoleId}>` : '';
+            
+            await appealsChannel.send({ 
+              content: pingContent,
+              embeds: [appealEmbed], 
+              components: [buttons] 
+            });
+            
+            channelSent = true;
+            console.log(`✅ Appeal ${appealDbId} sent to channel ${APPEALS_CHANNEL_ID}`);
+          } catch (channelError) {
+            console.error(`❌ Failed to send appeal to channel:`, channelError);
+            // Don't throw - appeal is already in DB, just log the error
           }
-          
-          if (appeal.banInfo) {
-            if (appeal.banInfo.reason) {
-              appealEmbed.addFields({ name: '⚖️ Ban Reason', value: appeal.banInfo.reason, inline: false });
-            }
-            if (appeal.banInfo.moderator) {
-              appealEmbed.addFields({ name: '👮 Banned By', value: appeal.banInfo.moderator, inline: true });
-            }
-            if (appeal.banInfo.caseId) {
-              appealEmbed.addFields({ name: '🔢 Case ID', value: `#${appeal.banInfo.caseId}`, inline: true });
-            }
-          }
-          
-          const buttons = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`ban_appeal_approve:${appealDbId}`)
-              .setLabel('Approve')
-              .setStyle(ButtonStyle.Success)
-              .setEmoji('✅'),
-            new ButtonBuilder()
-              .setCustomId(`ban_appeal_deny:${appealDbId}`)
-              .setLabel('Deny')
-              .setStyle(ButtonStyle.Danger)
-              .setEmoji('❌')
-          );
-          
-          // Get management role 1 ID for ping
-          const { tierRole } = require('./utils/rolesManager');
-          const managementRoleId = tierRole(guild.id, 'management1') || process.env.MANAGEMENT_ROLE_1_ID;
-          
-          const pingContent = managementRoleId ? `<@&${managementRoleId}>` : '';
-          
-          await appealsChannel.send({ 
-            content: pingContent,
-            embeds: [appealEmbed], 
-            components: [buttons] 
-          });
+        } else {
+          console.error(`❌ Appeals channel ${APPEALS_CHANNEL_ID} not found`);
         }
+      } else {
+        console.error(`❌ Guild ${appeal.guildId} not found`);
       }
+    } else {
+      console.error(`❌ Discord client not available`);
+    }
+    
+    if (!channelSent) {
+      console.warn(`⚠️ Appeal ${appealDbId} created in DB but NOT sent to channel`);
     }
     
     res.json({ success: true });
