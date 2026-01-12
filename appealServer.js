@@ -381,7 +381,14 @@ function registerRoutes() {
   saveAppealData(); // Persist the update
   
   // Check if appeal already exists in database
-  const existingAppeal = await getBanAppeal(appeal.userId, appeal.guildId);
+  const db = require('./database/db');
+  const existingAppeal = await new Promise((resolve, reject) => {
+    db.get(
+      `SELECT * FROM ban_appeals WHERE user_id = ? AND guild_id = ? ORDER BY created_at DESC LIMIT 1`,
+      [String(appeal.userId), String(appeal.guildId)],
+      (err, row) => err ? reject(err) : resolve(row || null)
+    );
+  }).catch(() => null);
   
   if (existingAppeal) {
     // Show status page
@@ -486,7 +493,17 @@ function registerRoutes() {
               .setEmoji('❌')
           );
           
-          await appealsChannel.send({ embeds: [appealEmbed], components: [buttons] });
+          // Get management role 1 ID for ping
+          const { tierRole } = require('./utils/rolesManager');
+          const managementRoleId = tierRole(guild.id, 'management1') || process.env.MANAGEMENT_ROLE_1_ID;
+          
+          const pingContent = managementRoleId ? `<@&${managementRoleId}>` : '';
+          
+          await appealsChannel.send({ 
+            content: pingContent,
+            embeds: [appealEmbed], 
+            components: [buttons] 
+          });
         }
       }
     }
@@ -604,19 +621,25 @@ function generateAppealStatusPage(user, appeal, existingAppeal, appealId) {
         <h2>${config.title}</h2>
         <p class="status-message">${config.message}</p>
         
-        ${status === 'denied' && cooldownInfo ? `
-          <div class="cooldown-section">
-            ${canReappeal ? `
-              <p class="cooldown-expired">✅ Your cooldown has expired. You may submit a new appeal.</p>
-              <a href="/appeal/${appealId}" class="submit-button" style="display: inline-block; text-decoration: none; margin-top: 20px;">Submit New Appeal</a>
-            ` : `
-              <div class="cooldown-active">
-                <p class="cooldown-title">⏰ Cooldown Active</p>
-                <p class="cooldown-time">${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining</p>
-                <p class="cooldown-note">You can submit another appeal after <strong>${cooldownInfo.toLocaleDateString()}</strong></p>
-              </div>
-            `}
+        ${status === 'denied' ? `
+          <div class="denial-reason-section" style="margin-top: 24px; padding: 20px; background: rgba(255, 71, 87, 0.1); border-left: 4px solid var(--error); border-radius: 8px;">
+            <p style="color: var(--text-primary); font-weight: 600; margin-bottom: 12px;">Reason for Denial:</p>
+            <p style="color: var(--text-secondary);">${escapeHtml(existingAppeal.denial_reason || 'No reason provided')}</p>
           </div>
+          ${cooldownInfo ? `
+            <div class="cooldown-section">
+              ${canReappeal ? `
+                <p class="cooldown-expired">✅ Your cooldown has expired. You may submit a new appeal.</p>
+                <a href="/appeal/${appealId}" class="submit-button" style="display: inline-block; text-decoration: none; margin-top: 20px;">Submit New Appeal</a>
+              ` : `
+                <div class="cooldown-active">
+                  <p class="cooldown-title">⏰ Cooldown Active</p>
+                  <p class="cooldown-time">${daysLeft} day${daysLeft !== 1 ? 's' : ''} remaining</p>
+                  <p class="cooldown-note">You can submit another appeal after <strong>${cooldownInfo.toLocaleDateString()}</strong></p>
+                </div>
+              `}
+            </div>
+          ` : ''}
         ` : ''}
         
         <div class="appeal-details">
@@ -649,19 +672,25 @@ function generateCooldownPage(user, appeal, cooldownInfo) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Appeal Cooldown - Ban Appeals</title>
+  <title>Appeal Denied - Ban Appeals</title>
   <link rel="stylesheet" href="/css/appeal.css">
 </head>
 <body>
   <div class="container">
     <div class="cooldown-card">
       ${appeal.banInfo && appeal.banInfo.guildIcon ? `<img src="${appeal.banInfo.guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
-      <h1>⏳ Appeal Cooldown Active</h1>
-      <p>You cannot submit another appeal at this time.</p>
+      <h1>❌ Appeal Denied</h1>
+      <p>Your previous ban appeal was denied.</p>
       <div class="cooldown-info">
+        <p><strong>Your appeal was denied for:</strong></p>
+        <div class="denial-reason-box">
+          ${escapeHtml(cooldownInfo.denialReason)}
+        </div>
+        <hr style="margin: 24px 0; border: none; border-top: 1px solid var(--border-color);">
+        <p><strong>Cooldown Information:</strong></p>
         <p><strong>Time Remaining:</strong> ${cooldownInfo.daysRemaining} day${cooldownInfo.daysRemaining !== 1 ? 's' : ''}</p>
         <p><strong>Can Appeal After:</strong> ${cooldownInfo.canAppealAfter.toLocaleDateString()}</p>
-        <p class="cooldown-note">You may submit a new appeal after your previous denial cooldown expires.</p>
+        <p class="cooldown-note">You may submit a new appeal after the cooldown period expires.</p>
       </div>
       <a href="/logout" class="logout-link">Logout</a>
     </div>
@@ -724,7 +753,7 @@ function generateAppealFormPage(user, appeal, appealId) {
           ${banInfo.timestamp ? `
           <div class="detail-item">
             <span class="detail-label">Banned At:</span>
-            <span class="detail-value">${new Date(banInfo.timestamp).toLocaleString()}</span>
+            <span class="detail-value" id="banTimestamp" data-timestamp="${banInfo.timestamp}"></span>
           </div>
           ` : ''}
         </div>
@@ -773,6 +802,9 @@ function generateAppealFormPage(user, appeal, appealId) {
       <h2>Appeal Submitted!</h2>
       <p>Your ban appeal has been successfully submitted to our moderation team.</p>
       <p class="modal-note">You will receive a DM with the decision once your appeal has been reviewed.</p>
+      <p class="modal-note" style="margin-top: 12px; color: var(--text-muted);">
+        If you don't receive a response within 24-48 hours, return to this page to check your appeal status.
+      </p>
       <button onclick="window.location.reload()" class="modal-button">View Status</button>
     </div>
   </div>
@@ -787,6 +819,21 @@ function generateAppealFormPage(user, appeal, appealId) {
   </div>
   
   <script>
+    // Format timestamp to user's local time
+    const timestampEl = document.getElementById('banTimestamp');
+    if (timestampEl) {
+      const timestamp = parseInt(timestampEl.getAttribute('data-timestamp'));
+      const date = new Date(timestamp);
+      timestampEl.textContent = date.toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZoneName: 'short'
+      });
+    }
+    
     const form = document.getElementById('appealForm');
     const submitBtn = document.getElementById('submitBtn');
     const successModal = document.getElementById('successModal');

@@ -913,57 +913,25 @@ module.exports = {
       }
       
       // Ban Appeal: Deny
+      // Ban Appeal: Deny - Show modal for reason
       if (interaction.customId.startsWith('ban_appeal_deny:')) {
-        await interaction.deferReply({ ephemeral: true });
         const appealId = interaction.customId.split(':')[1];
         
-        const { getBanAppeal, denyBanAppeal } = require('../utils/banAppeals');
-        const appeal = await getBanAppeal(appealId);
+        const modal = new ModalBuilder()
+          .setCustomId(`ban_appeal_deny_modal:${appealId}`)
+          .setTitle('Deny Ban Appeal');
         
-        if (!appeal) {
-          return interaction.editReply({ content: '❌ Appeal not found.' });
-        }
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('denial_reason')
+          .setLabel('Reason for Denial')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Explain why this appeal is being denied...')
+          .setRequired(true)
+          .setMaxLength(1000);
         
-        if (appeal.status !== 'pending') {
-          return interaction.editReply({ content: `❌ This appeal has already been ${appeal.status}.` });
-        }
+        modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
         
-        // Update appeal status with 14 day cooldown
-        await denyBanAppeal(appealId, interaction.user.id);
-        
-        // Send DM to user
-        try {
-          const user = await interaction.client.users.fetch(appeal.user_id);
-          const denialEmbed = new EmbedBuilder()
-            .setTitle('❌ Ban Appeal Denied')
-            .setDescription('Your ban appeal has been denied. You may submit another appeal in 14 days.')
-            .setColor(0xFF0000)
-            .addFields([
-              { name: 'Server', value: 'King\'s Customs', inline: true },
-              { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
-              { name: 'Next Appeal Available', value: `<t:${Math.floor((Date.now() + 14 * 24 * 60 * 60 * 1000) / 1000)}:R>`, inline: false }
-            ])
-            .setFooter({ text: 'Appeals are reviewed carefully by our moderation team' })
-            .setTimestamp();
-          
-          await user.send({ embeds: [denialEmbed] });
-        } catch (e) {
-          console.error('Failed to send denial DM:', e);
-        }
-        
-        // Update the original message
-        try {
-          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-            .setColor(0xFF0000)
-            .setTitle('❌ Ban Appeal - DENIED')
-            .addFields([{ name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true }]);
-          
-          await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
-        } catch (e) {
-          console.error('Failed to update appeal message:', e);
-        }
-        
-        return interaction.editReply({ content: '✅ Ban appeal denied. User has been notified and can appeal again in 14 days.' });
+        return interaction.showModal(modal);
       }
       
       // LOA: Request new LOA
@@ -2063,6 +2031,65 @@ module.exports = {
       }
       
       // OLD MODAL HANDLER - NO LONGER USED (Web form is used instead)
+      // Ban Appeal Deny Modal Submission
+      if (interaction.customId.startsWith('ban_appeal_deny_modal:')) {
+        await interaction.deferReply({ ephemeral: true });
+        const appealId = interaction.customId.split(':')[1];
+        const denialReason = interaction.fields.getTextInputValue('denial_reason');
+        
+        const { getBanAppeal, denyBanAppeal } = require('../utils/banAppeals');
+        const appeal = await getBanAppeal(appealId);
+        
+        if (!appeal) {
+          return interaction.editReply({ content: '❌ Appeal not found.' });
+        }
+        
+        if (appeal.status !== 'pending') {
+          return interaction.editReply({ content: `❌ This appeal has already been ${appeal.status}.` });
+        }
+        
+        // Update appeal status with 14 day cooldown and denial reason
+        await denyBanAppeal(appealId, interaction.user.id, denialReason);
+        
+        // Send DM to user with denial reason
+        try {
+          const user = await interaction.client.users.fetch(appeal.user_id);
+          const denialEmbed = new EmbedBuilder()
+            .setTitle('❌ Ban Appeal Denied')
+            .setDescription('Your ban appeal has been denied.')
+            .setColor(0xFF0000)
+            .addFields([
+              { name: 'Reason for Denial', value: denialReason, inline: false },
+              { name: 'Server', value: 'King\'s Customs', inline: true },
+              { name: 'Reviewed By', value: interaction.user.tag, inline: true },
+              { name: 'Next Appeal Available', value: `<t:${Math.floor((Date.now() + 14 * 24 * 60 * 60 * 1000) / 1000)}:R>`, inline: false }
+            ])
+            .setFooter({ text: 'You may submit another appeal after the cooldown period' })
+            .setTimestamp();
+          
+          await user.send({ embeds: [denialEmbed] });
+        } catch (e) {
+          console.error('Failed to send denial DM:', e);
+        }
+        
+        // Update the original message
+        try {
+          const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+            .setColor(0xFF0000)
+            .setTitle('❌ Ban Appeal - DENIED')
+            .addFields([
+              { name: 'Reviewed By', value: `<@${interaction.user.id}>`, inline: true },
+              { name: 'Denial Reason', value: denialReason, inline: false }
+            ]);
+          
+          await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+        } catch (e) {
+          console.error('Failed to update appeal message:', e);
+        }
+        
+        return interaction.editReply({ content: '✅ Ban appeal denied. User has been notified and can appeal again in 14 days.' });
+      }
+      
       /*
       if (interaction.customId.startsWith('ban_appeal_modal:')) {
         await interaction.deferReply({ ephemeral: true });

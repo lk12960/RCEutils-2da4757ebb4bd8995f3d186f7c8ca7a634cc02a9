@@ -13,7 +13,8 @@ db.serialize(() => {
       reviewed_by TEXT,
       reviewed_at TEXT,
       created_at TEXT NOT NULL,
-      can_appeal_after TEXT -- Null if approved, date string if denied
+      can_appeal_after TEXT, -- Null if approved, date string if denied
+      denial_reason TEXT -- Reason for denial if denied
     )
   `);
 });
@@ -95,14 +96,14 @@ function approveBanAppeal(appealId, reviewerId) {
 /**
  * Deny a ban appeal with 14 day cooldown
  */
-function denyBanAppeal(appealId, reviewerId) {
+function denyBanAppeal(appealId, reviewerId, denialReason = null) {
   return new Promise((resolve, reject) => {
     const reviewedAt = new Date().toISOString();
     const cooldownEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
     db.run(
-      `UPDATE ban_appeals SET status = 'denied', reviewed_by = ?, reviewed_at = ?, can_appeal_after = ? 
+      `UPDATE ban_appeals SET status = 'denied', reviewed_by = ?, reviewed_at = ?, can_appeal_after = ?, denial_reason = ? 
        WHERE id = ?`,
-      [String(reviewerId), reviewedAt, cooldownEnd, Number(appealId)],
+      [String(reviewerId), reviewedAt, cooldownEnd, denialReason, Number(appealId)],
       function (err) {
         if (err) return reject(err);
         resolve(this.changes > 0);
@@ -134,7 +135,7 @@ function getBanCaseDetails(userId, guildId) {
 function getCooldownInfo(userId, guildId) {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT can_appeal_after FROM ban_appeals 
+      `SELECT can_appeal_after, denial_reason FROM ban_appeals 
        WHERE user_id = ? AND guild_id = ? AND status = 'denied' 
        ORDER BY created_at DESC LIMIT 1`,
       [String(userId), String(guildId)],
@@ -151,7 +152,8 @@ function getCooldownInfo(userId, guildId) {
         
         resolve({
           canAppealAfter: cooldownEnd,
-          daysRemaining: Math.ceil((cooldownEnd - now) / (1000 * 60 * 60 * 24))
+          daysRemaining: Math.ceil((cooldownEnd - now) / (1000 * 60 * 60 * 24)),
+          denialReason: row.denial_reason || 'No reason provided'
         });
       }
     );
