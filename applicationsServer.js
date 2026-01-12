@@ -38,12 +38,11 @@ function registerApplicationRoutes(app) {
       const member = await guild.members.fetch(userId).catch(() => null);
       if (!member) return res.status(403).send('Not a server member');
       
-      // Check for management1 or management2 roles
-      const { tierRole } = require('./utils/rolesManager');
-      const mgmt1 = '1411100904949682236'; // Hardcoded management role
-      const mgmt2 = tierRole(guild.id, 'management2');
+      // Check for management roles (hardcoded)
+      const mgmt1 = '1411100904949682236'; // Management role 1
+      const mgmt2 = '1419399437997834301'; // Management role 2
       
-      const hasPermission = member.roles.cache.has(mgmt1) || (mgmt2 && member.roles.cache.has(mgmt2));
+      const hasPermission = member.roles.cache.has(mgmt1) || member.roles.cache.has(mgmt2);
       
       if (!hasPermission) {
         return res.status(403).send(`
@@ -216,10 +215,14 @@ function registerApplicationRoutes(app) {
       const formsWithCounts = await Promise.all(forms.map(async (form) => {
         const submissions = await getFormSubmissions(form.id);
         const pending = submissions.filter(s => s.status === 'submitted').length;
+        const accepted = submissions.filter(s => s.status === 'accepted').length;
+        const denied = submissions.filter(s => s.status === 'denied').length;
         return {
           ...form,
           totalSubmissions: submissions.length,
-          pendingReview: pending
+          pendingReview: pending,
+          acceptedCount: accepted,
+          deniedCount: denied
         };
       }));
       
@@ -227,6 +230,49 @@ function registerApplicationRoutes(app) {
     } catch (error) {
       console.error('Error loading admin dashboard:', error);
       res.status(500).send('Failed to load dashboard');
+    }
+  });
+
+  // View all submissions for a form
+  app.get('/applications/admin/submissions', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.query.form);
+      if (!formId) return res.redirect('/applications/admin');
+      
+      const form = await getFormById(formId);
+      const submissions = await getFormSubmissions(formId);
+      
+      res.send(generateSubmissionsListPage(req.session.user, form, submissions));
+    } catch (error) {
+      console.error('Error loading submissions:', error);
+      res.status(500).send('Failed to load submissions');
+    }
+  });
+
+  // Delete form
+  app.delete('/applications/admin/forms/:formId', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.params.formId);
+      const db = require('./database/applications');
+      
+      // Delete submissions first
+      await new Promise((resolve, reject) => {
+        db.run('DELETE FROM application_submissions WHERE form_id = ?', [formId], (err) => {
+          err ? reject(err) : resolve();
+        });
+      });
+      
+      // Delete form
+      await new Promise((resolve, reject) => {
+        db.run('DELETE FROM application_forms WHERE id = ?', [formId], (err) => {
+          err ? reject(err) : resolve();
+        });
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting form:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 
@@ -511,6 +557,10 @@ function generateReviewPage(user, form, submission, questions, responses, allSub
 
 function generateFormBuilder(user) {
   return require('./views/formBuilder')(user);
+}
+
+function generateSubmissionsListPage(user, form, submissions) {
+  return require('./views/submissionsList')(user, form, submissions);
 }
 
 module.exports = { registerApplicationRoutes };

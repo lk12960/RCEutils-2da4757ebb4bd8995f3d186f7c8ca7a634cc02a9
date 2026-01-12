@@ -896,3 +896,434 @@
   border-color: var(--royal-blue);
   color: var(--royal-blue);
 }
+
+/* Enhanced Admin Dashboard */
+.admin-actions {
+  text-align: center;
+  margin: 32px 0;
+}
+
+.create-form-btn {
+  padding: 16px 32px;
+  background: linear-gradient(135deg, var(--royal-blue), var(--royal-blue-dark));
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(46, 126, 254, 0.3);
+}
+
+.create-form-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(46, 126, 254, 0.5);
+}
+
+.stat-card.success {
+  border-color: var(--success);
+}
+
+.stat-card.denied {
+  border-color: var(--error);
+}
+
+/* Forms Grid Admin */
+.forms-grid-admin {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.form-card-admin {
+  background: var(--bg-dark);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  transition: all 0.3s ease;
+}
+
+.form-card-admin:hover {
+  border-color: var(--royal-blue);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(46, 126, 254, 0.2);
+}
+
+.form-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.form-card-header h3 {
+  color: var(--text-primary);
+  font-size: 1.3rem;
+  margin: 0;
+  flex: 1;
+}
+
+.form-status-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge.pending {
+  background: rgba(46, 126, 254, 0.2);
+  color: var(--royal-blue);
+}
+
+.badge.accepted {
+  background: rgba(0, 255, 136, 0.2);
+  color: var(--success);
+}
+
+.badge.denied {
+  background: rgba(255, 71, 87, 0.2);
+  color: var(--error);
+}
+
+.form-card-description {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+.form-card-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-number {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--royal-blue);
+}
+
+.stat-text {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.form-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.action-buttons-row {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-primary,
+.btn-secondary,
+.btn-tertiary,
+.btn-danger {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 0.95rem;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--royal-blue), var(--royal-blue-dark));
+  color: white;
+  position: relative;
+}
+
+.btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(46, 126, 254, 0.4);
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-badge {
+  background: rgba(255, 255, 255, 0.3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  margin-left: auto;
+}
+
+.btn-secondary {
+  flex: 1;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 2px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  border-color: var(--royal-blue);
+  color: var(--royal-blue);
+}
+
+.btn-tertiary {
+  flex: 1;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  font-size: 0.9rem;
+}
+
+.btn-tertiary:hover {
+  background: var(--bg-card);
+  border-color: var(--royal-blue);
+  color: var(--royal-blue);
+}
+
+.btn-danger {
+  flex: 1;
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+  font-size: 0.9rem;
+}
+
+.btn-danger:hover {
+  background: var(--error);
+  color: white;
+}
+
+.empty-icon {
+  font-size: 4rem;
+  margin-bottom: 16px;
+}
+
+.no-forms {
+  text-align: center;
+  padding: 60px 20px;
+  background: var(--bg-dark);
+  border-radius: 12px;
+  border: 2px dashed var(--border-color);
+}
+
+.no-forms h3 {
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.no-forms p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.create-button {
+  padding: 14px 28px;
+  background: var(--royal-blue);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.create-button:hover {
+  background: var(--royal-blue-light);
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .forms-grid-admin {
+    grid-template-columns: 1fr;
+  }
+  
+  .form-card-stats {
+    grid-template-columns: 1fr;
+  }
+  
+  .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+/* Submissions List Page */
+.submissions-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.no-submissions {
+  text-align: center;
+  padding: 80px 20px;
+  background: var(--bg-card);
+  border-radius: 12px;
+  border: 2px dashed var(--border-color);
+}
+
+.submissions-filters {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  padding: 10px 20px;
+  background: var(--bg-dark);
+  color: var(--text-secondary);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.filter-btn:hover {
+  border-color: var(--royal-blue);
+  color: var(--royal-blue);
+}
+
+.filter-btn.active {
+  background: var(--royal-blue);
+  color: white;
+  border-color: var(--royal-blue);
+}
+
+.submissions-table {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.submission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px;
+  background: var(--bg-card);
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  gap: 20px;
+}
+
+.submission-row:hover {
+  border-color: var(--royal-blue);
+  transform: translateX(4px);
+}
+
+.submission-info {
+  flex: 1;
+}
+
+.submission-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.submission-user strong {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.user-id {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.roblox-info {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.submission-dates {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.submission-status {
+  min-width: 120px;
+  text-align: center;
+}
+
+.submission-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-review,
+.btn-view {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-review {
+  background: var(--royal-blue);
+  color: white;
+}
+
+.btn-review:hover {
+  background: var(--royal-blue-light);
+  transform: translateY(-2px);
+}
+
+.btn-view {
+  background: var(--bg-dark);
+  color: var(--text-secondary);
+  border: 2px solid var(--border-color);
+}
+
+.btn-view:hover {
+  border-color: var(--royal-blue);
+  color: var(--royal-blue);
+}
+
+@media (max-width: 768px) {
+  .submission-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .submission-status,
+  .submission-actions {
+    width: 100%;
+  }
+}
