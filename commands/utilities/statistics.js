@@ -41,6 +41,10 @@ function buildSummaryEmbed(guildId, sinceIso, totals, group) {
     add('Users Ticket Blacklisted', t('ticket_blacklisted'));
     add('Moderations Voided', t('moderation_voided'));
     add('Infractions Voided', t('infraction_voided'));
+    add('Applications Submitted', t('applications_submitted'));
+    add('Applications Accepted', t('applications_accepted'));
+    add('Applications Denied', t('applications_denied'));
+    add('Applications Pending', t('applications_pending'));
   } else {
     for (const k of GROUPS[group]) add(k.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase()), t(k));
   }
@@ -63,6 +67,18 @@ module.exports = {
 
     const groups = [...new Set(Object.values(GROUPS).flat())];
     const totals = await summarize(interaction.guild.id, sinceIso, groups);
+    
+    // Add application statistics
+    try {
+      const { getStatistics } = require('../../utils/applicationsManager');
+      const appStats = await getStatistics();
+      totals.applications_submitted = appStats.total_submitted || 0;
+      totals.applications_accepted = appStats.accepted || 0;
+      totals.applications_denied = appStats.denied || 0;
+      totals.applications_pending = appStats.pending || 0;
+    } catch (err) {
+      console.error('Failed to get application statistics:', err);
+    }
 
     const selector = new StringSelectMenuBuilder()
       .setCustomId(`stats_select:${interaction.user.id}:${sinceIso || ''}`)

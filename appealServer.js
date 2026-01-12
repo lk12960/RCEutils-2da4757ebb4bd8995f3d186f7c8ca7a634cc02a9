@@ -977,5 +977,14 @@ module.exports = {
     console.log('✅ Ban Appeal System initialized');
     console.log(`🔗 Base URL: ${BASE_URL}`);
     console.log(`🔑 OAuth Redirect: ${REDIRECT_URI}`);
+    
+    // Register applications routes
+    try {
+      const { registerApplicationRoutes } = require('./applicationsServer');
+      registerApplicationRoutes(app);
+      console.log('✅ Applications system routes registered');
+    } catch (err) {
+      console.error('❌ Failed to register applications routes:', err);
+    }
   }
 };

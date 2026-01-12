@@ -103,7 +103,15 @@ client.once('ready', async () => {
     }
   }, 150000); // 150000 ms = 2.5 minutes
   
-  // Start ban appeal web server
+  // Initialize applications database
+  try {
+    require('./database/applications');
+    console.log('✅ Applications database initialized');
+  } catch (err) {
+    console.error('Failed to initialize applications database:', err);
+  }
+  
+  // Start ban appeal web server (includes applications routes)
   try {
     const { startServer } = require('./appealServer');
     startServer(client, app);
