@@ -40,13 +40,46 @@ function registerApplicationRoutes(app) {
     
     // Hardcoded admin user IDs
     const adminUsers = ['698200964917624936', '943969479984033833'];
+    // Admin role IDs
+    const adminRoles = ['1419399437997834301', '1411100904949682236'];
     const userId = req.session.user.id;
     
     console.log(`🔍 Admin check for user ${userId}`);
     
-    if (!adminUsers.includes(userId)) {
-      console.log(`   ❌ Not an authorized admin user`);
-      return res.status(403).send(`
+    // Check if user is in hardcoded list
+    if (adminUsers.includes(userId)) {
+      console.log(`   ✅ Admin access granted (hardcoded user)`);
+      return next();
+    }
+    
+    // Check if user has admin role in any guild
+    let hasAdminRole = false;
+    if (global.discordClient) {
+      for (const guild of global.discordClient.guilds.cache.values()) {
+        try {
+          const member = await guild.members.fetch(userId).catch(() => null);
+          if (member) {
+            for (const roleId of adminRoles) {
+              if (member.roles.cache.has(roleId)) {
+                hasAdminRole = true;
+                console.log(`   ✅ Admin access granted (has role ${roleId})`);
+                break;
+              }
+            }
+          }
+          if (hasAdminRole) break;
+        } catch (err) {
+          // Member not in this guild, continue
+        }
+      }
+    }
+    
+    if (hasAdminRole) {
+      return next();
+    }
+    
+    console.log(`   ❌ Not an authorized admin user`);
+    return res.status(403).send(`
 <!DOCTYPE html>
 <html><head><title>Access Denied</title><link rel="stylesheet" href="/css/appeal.css"></head>
 <body><div class="container"><div class="error-card">
@@ -54,11 +87,7 @@ function registerApplicationRoutes(app) {
 <p>You do not have permission to access the admin dashboard.</p>
 <a href="/applications">Back to Applications</a>
 </div></div></body></html>
-        `);
-      }
-      
-    console.log(`   ✅ Admin access granted`);
-    next();
+      `);
   };
 
   // Public applications homepage

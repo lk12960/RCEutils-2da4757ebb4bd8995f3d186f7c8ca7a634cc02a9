@@ -1,5 +1,7 @@
 // Review Page View
 module.exports = function(user, form, submission, questions, responses, allSubmissions) {
+  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
+  
   const currentIndex = allSubmissions.findIndex(s => s.id === submission.id);
   const prevSubmission = currentIndex > 0 ? allSubmissions[currentIndex - 1] : null;
   const nextSubmission = currentIndex < allSubmissions.length - 1 ? allSubmissions[currentIndex + 1] : null;
@@ -14,7 +16,29 @@ module.exports = function(user, form, submission, questions, responses, allSubmi
   <link rel="stylesheet" href="/css/appeal.css">
   <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  <!-- Top Navigation Bar -->
+  <nav class="top-nav">
+    <a href="/" class="nav-logo">
+      <img src="${serverLogoUrl}" alt="King's Customs">
+      <span class="nav-logo-text">King's Customs</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="nav-link home">
+        <span class="nav-link-icon">🏠</span>
+        <span class="nav-link-text">Home</span>
+      </a>
+      <a href="/appeal" class="nav-link appeals">
+        <span class="nav-link-icon">⚖️</span>
+        <span class="nav-link-text">Ban Appeals</span>
+      </a>
+      <a href="/applications" class="nav-link applications active">
+        <span class="nav-link-icon">📝</span>
+        <span class="nav-link-text">Applications</span>
+      </a>
+    </div>
+  </nav>
+
   <div class="container review-container">
     <div class="review-header">
       <h1>📋 Review Application</h1>

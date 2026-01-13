@@ -709,8 +709,10 @@ function generateAppealStatusPage(user, appeal, existingAppeal, appealId) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Appeal Status - Ban Appeals</title>
   <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  ${generateNavBar('appeals')}
   <div class="container">
     <div class="appeal-card">
       <div class="header">
@@ -777,8 +779,10 @@ function generateCooldownPage(user, appeal, cooldownInfo) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Appeal Denied - Ban Appeals</title>
   <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  ${generateNavBar('appeals')}
   <div class="container">
     <div class="cooldown-card">
       ${appeal.banInfo && appeal.banInfo.guildIcon ? `<img src="${appeal.banInfo.guildIcon}" alt="Server Icon" class="guild-icon">` : ''}
@@ -814,8 +818,10 @@ function generateAppealFormPage(user, appeal, appealId) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Submit Ban Appeal - ${banInfo.guildName || 'Server'}</title>
   <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  ${generateNavBar('appeals')}
   <div class="container">
     <div class="appeal-card">
       <div class="header">
@@ -1002,8 +1008,10 @@ function generateBanStatusPage(user, bans) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Ban Status - Ban Appeals</title>
   <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  ${generateNavBar('appeals')}
   <div class="container">
     <div class="appeal-card">
       <div class="header">
@@ -1031,6 +1039,33 @@ function generateBanStatusPage(user, bans) {
   `;
 }
 
+// Helper function to generate navigation bar HTML
+function generateNavBar(activePage = 'appeals') {
+  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
+  
+  return `
+  <nav class="top-nav">
+    <a href="/" class="nav-logo">
+      <img src="${serverLogoUrl}" alt="King's Customs">
+      <span class="nav-logo-text">King's Customs</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="nav-link home">
+        <span class="nav-link-icon">🏠</span>
+        <span class="nav-link-text">Home</span>
+      </a>
+      <a href="/appeal" class="nav-link appeals ${activePage === 'appeals' ? 'active' : ''}">
+        <span class="nav-link-icon">⚖️</span>
+        <span class="nav-link-text">Ban Appeals</span>
+      </a>
+      <a href="/applications" class="nav-link applications ${activePage === 'applications' ? 'active' : ''}">
+        <span class="nav-link-icon">📝</span>
+        <span class="nav-link-text">Applications</span>
+      </a>
+    </div>
+  </nav>`;
+}
+
 function generateStyledNotBannedPage(user, logoUrl) {
   return `
 <!DOCTYPE html>
@@ -1041,8 +1076,10 @@ function generateStyledNotBannedPage(user, logoUrl) {
   <title>Not Banned - King's Customs</title>
   <link rel="stylesheet" href="/css/appeal.css">
   <link rel="stylesheet" href="/css/home.css">
+  <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  ${generateNavBar('appeals')}
   <!-- Animated background particles -->
   <div class="particles">
     <div class="particle"></div>

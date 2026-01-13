@@ -22,7 +22,29 @@ module.exports = function(user, forms, guildIcon, guildName) {
   <link rel="stylesheet" href="/css/appeal.css">
   <link rel="stylesheet" href="/css/applications.css">
 </head>
-<body>
+<body class="has-nav">
+  <!-- Top Navigation Bar -->
+  <nav class="top-nav">
+    <a href="/" class="nav-logo">
+      <img src="${serverLogoUrl}" alt="King's Customs">
+      <span class="nav-logo-text">King's Customs</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="nav-link home">
+        <span class="nav-link-icon">🏠</span>
+        <span class="nav-link-text">Home</span>
+      </a>
+      <a href="/appeal" class="nav-link appeals">
+        <span class="nav-link-icon">⚖️</span>
+        <span class="nav-link-text">Ban Appeals</span>
+      </a>
+      <a href="/applications" class="nav-link applications active">
+        <span class="nav-link-icon">📝</span>
+        <span class="nav-link-text">Applications</span>
+      </a>
+    </div>
+  </nav>
+
   <div class="container applications-hub">
     <div class="server-logo-container">
       <img src="${serverLogoUrl}" alt="${escapeHtml(guildName)}" class="server-logo">
@@ -106,9 +128,18 @@ function escapeHtml(text) {
   return String(text).replace(/[&<>"']/g, m => map[m]);
 }
 
-function checkIfAdmin(userId) {
+function checkIfAdmin(userId, userRoles = []) {
   const adminUsers = ['698200964917624936', '943969479984033833'];
-  return adminUsers.includes(userId);
+  const adminRoles = ['1419399437997834301', '1411100904949682236'];
+  
+  if (adminUsers.includes(userId)) return true;
+  
+  // Check if user has any admin roles
+  for (const roleId of adminRoles) {
+    if (userRoles.includes(roleId)) return true;
+  }
+  
+  return false;
 }
 
 function renderRequirements(requirements) {

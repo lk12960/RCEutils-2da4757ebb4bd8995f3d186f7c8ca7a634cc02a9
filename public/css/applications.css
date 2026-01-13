@@ -1,5 +1,155 @@
 /* Applications System CSS - Matching Ban Appeals Theme */
 
+/* ============================================
+   TOP NAVIGATION BAR
+   ============================================ */
+.top-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: rgba(10, 14, 39, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 1000;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+}
+
+.nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: opacity 0.3s ease;
+}
+
+.nav-logo:hover {
+  opacity: 0.8;
+}
+
+.nav-logo img {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+}
+
+.nav-logo-text {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: none;
+}
+
+@media (min-width: 600px) {
+  .nav-logo-text {
+    display: block;
+  }
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 10px;
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+  background: rgba(46, 126, 254, 0.1);
+  border-color: rgba(46, 126, 254, 0.3);
+}
+
+.nav-link.active {
+  color: var(--royal-blue);
+  background: rgba(46, 126, 254, 0.15);
+  border-color: rgba(46, 126, 254, 0.4);
+}
+
+.nav-link-icon {
+  font-size: 1.1rem;
+}
+
+.nav-link-text {
+  display: none;
+}
+
+@media (min-width: 500px) {
+  .nav-link-text {
+    display: inline;
+  }
+}
+
+/* Specific nav link colors on hover */
+.nav-link.home:hover {
+  color: var(--royal-blue);
+  border-color: rgba(46, 126, 254, 0.4);
+}
+
+.nav-link.appeals:hover {
+  color: #ff4757;
+  background: rgba(255, 71, 87, 0.1);
+  border-color: rgba(255, 71, 87, 0.3);
+}
+
+.nav-link.applications:hover {
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.1);
+  border-color: rgba(0, 255, 136, 0.3);
+}
+
+.nav-link.appeals.active {
+  color: #ff4757;
+  background: rgba(255, 71, 87, 0.15);
+  border-color: rgba(255, 71, 87, 0.4);
+}
+
+.nav-link.applications.active {
+  color: #00ff88;
+  background: rgba(0, 255, 136, 0.15);
+  border-color: rgba(0, 255, 136, 0.4);
+}
+
+/* Add padding to body when nav is present */
+body.has-nav {
+  padding-top: 80px;
+}
+
+/* Mobile nav adjustments */
+@media (max-width: 400px) {
+  .top-nav {
+    padding: 0 12px;
+  }
+  
+  .nav-link {
+    padding: 8px 12px;
+  }
+  
+  .nav-logo img {
+    height: 30px;
+  }
+}
+
 /* Grid Layout */
 .applications-grid {
   display: grid;
