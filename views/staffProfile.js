@@ -101,14 +101,17 @@ function generateStyles() {
       .loa-info { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
       
       /* Modals */
-      .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
-      .modal-overlay.show { display: flex; }
-      .modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
-      .modal h2 { margin-bottom: 20px; }
+      .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 9999; }
+      .modal-overlay.show { display: flex !important; }
+      .modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; z-index: 10000; position: relative; border: 1px solid var(--border-color); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+      .modal h2 { margin-bottom: 20px; color: var(--text-primary); }
+      .modal p { color: var(--text-secondary); margin-bottom: 16px; }
       .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
       .form-group { margin-bottom: 16px; }
       .form-group label { display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 0.9rem; }
-      .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); }
+      .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px 12px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 1rem; }
+      .form-group select { cursor: pointer; }
+      .form-group textarea { min-height: 100px; resize: vertical; font-family: inherit; }
       
       @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
       @media (max-width: 768px) { .profile-header { flex-direction: column; align-items: center; text-align: center; } .action-buttons { justify-content: center; } }
