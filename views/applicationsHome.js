@@ -24,7 +24,13 @@ module.exports = function(user, forms) {
     <div class="applications-header">
       <h1>📋 Applications</h1>
       <p class="subtitle">Welcome, ${user.username}</p>
-      <a href="/logout" class="logout-link">Logout</a>
+      <div class="header-actions">
+        ${checkIfAdmin(user.id) ? `
+          <a href="/applications/admin" class="admin-link">⚙️ Admin Dashboard</a>
+          <a href="/applications/admin/builder" class="create-form-link">➕ Create New Form</a>
+        ` : ''}
+        <a href="/logout" class="logout-link">Logout</a>
+      </div>
     </div>
 
     <div class="applications-grid">
@@ -77,6 +83,11 @@ function escapeHtml(text) {
   if (!text) return '';
   const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return String(text).replace(/[&<>"']/g, m => map[m]);
+}
+
+function checkIfAdmin(userId) {
+  const adminUsers = ['698200964917624936', '943969479984033833'];
+  return adminUsers.includes(userId);
 }
 
 function renderRequirements(requirements) {

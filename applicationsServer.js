@@ -33,44 +33,19 @@ function registerApplicationRoutes(app) {
 
   const requireAdmin = async (req, res, next) => {
     if (!req.session || !req.session.user) {
-      return res.status(403).send('Unauthorized');
+      req.session.returnTo = req.originalUrl;
+      return res.redirect('/login');
     }
     
-    // Check if user has management roles
-    try {
-      const userId = req.session.user.id;
-      const guild = global.discordClient.guilds.cache.first();
-      
-      console.log(`🔍 Admin check for user ${userId}`);
-      console.log(`   Guild found: ${!!guild}`);
-      
-      if (!guild) return res.status(500).send('Guild not found');
-      
-      const member = await guild.members.fetch({ user: userId, force: true }).catch((err) => {
-        console.error(`   Failed to fetch member: ${err.message}`);
-        return null;
-      });
-      
-      console.log(`   Member found: ${!!member}`);
-      
-      if (!member) return res.status(403).send('Not a server member');
-      
-      // Check for management roles (hardcoded)
-      const mgmt1 = '1411100904949682236'; // Management role 1
-      const mgmt2 = '1419399437997834301'; // Management role 2
-      
-      const hasMgmt1 = member.roles.cache.has(mgmt1);
-      const hasMgmt2 = member.roles.cache.has(mgmt2);
-      
-      console.log(`   Has management role 1: ${hasMgmt1}`);
-      console.log(`   Has management role 2: ${hasMgmt2}`);
-      console.log(`   User roles:`, Array.from(member.roles.cache.keys()));
-      
-      const hasPermission = hasMgmt1 || hasMgmt2;
-      
-      if (!hasPermission) {
-        console.log(`   ❌ Permission denied`);
-        return res.status(403).send(`
+    // Hardcoded admin user IDs
+    const adminUsers = ['698200964917624936', '943969479984033833'];
+    const userId = req.session.user.id;
+    
+    console.log(`🔍 Admin check for user ${userId}`);
+    
+    if (!adminUsers.includes(userId)) {
+      console.log(`   ❌ Not an authorized admin user`);
+      return res.status(403).send(`
 <!DOCTYPE html>
 <html><head><title>Access Denied</title><link rel="stylesheet" href="/css/appeal.css"></head>
 <body><div class="container"><div class="error-card">
@@ -81,11 +56,8 @@ function registerApplicationRoutes(app) {
         `);
       }
       
-      next();
-    } catch (error) {
-      console.error('Error checking admin permissions:', error);
-      res.status(500).send('Permission check failed');
-    }
+    console.log(`   ✅ Admin access granted`);
+    next();
   };
 
   // Public applications homepage
