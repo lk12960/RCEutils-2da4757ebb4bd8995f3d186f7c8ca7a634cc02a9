@@ -592,6 +592,8 @@ module.exports = function(user, staffData, filters = {}) {
                     <div class="staff-category">
                       ${categoryName}${member.category.position ? ` • ${member.category.position.name}` : ''}
                       ${specialtyDisplay}
+                      ${member.category.additionalCategories && member.category.additionalCategories.length > 0 ? 
+                        `<span class="tooltip" data-tooltip="${member.category.additionalCategories.map(c => c.name).join(', ')}" style="color: var(--text-muted); font-size: 0.8rem;"> (+${member.category.additionalCategories.length} more)</span>` : ''}
                     </div>
                     <div class="staff-meta">
                       <span title="Infractions Received">⚠️ ${member.stats.infractionsReceived}</span>

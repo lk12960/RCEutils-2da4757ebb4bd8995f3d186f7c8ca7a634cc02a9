@@ -177,6 +177,9 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
             <span class="badge category">${staffMember.category.icon} ${staffMember.category.name}</span>
             ${staffMember.category.position ? `<span class="badge position">${staffMember.category.position.name}</span>` : ''}
             ${(staffMember.category.specialties || []).map(s => `<span class="badge specialty">${s.short}</span>`).join('')}
+            ${(staffMember.category.additionalCategories || []).map(c => 
+              `<span class="badge" style="background: ${c.color}20; color: ${c.color};">${c.icon} ${c.name}</span>`
+            ).join('')}
           </div>
           
           <div class="action-buttons">
@@ -237,9 +240,11 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
           <div class="info-grid">
             <div class="info-item"><span class="label">Staff Since</span><span class="value">${formatDateTime(staffMember.record?.staff_since)}</span></div>
             <div class="info-item"><span class="label">Last Promotion</span><span class="value">${formatDateTime(staffMember.record?.last_promotion_date) || 'Never'}</span></div>
-            <div class="info-item"><span class="label">Category</span><span class="value">${staffMember.category.name}</span></div>
+            <div class="info-item"><span class="label">Primary Category</span><span class="value">${staffMember.category.name}</span></div>
             <div class="info-item"><span class="label">Position</span><span class="value">${staffMember.category.position?.name || 'N/A'}</span></div>
             <div class="info-item"><span class="label">Status</span><span class="value">${statusText}</span></div>
+            ${staffMember.category.additionalCategories && staffMember.category.additionalCategories.length > 0 ? 
+              `<div class="info-item"><span class="label">Additional Categories</span><span class="value">${staffMember.category.additionalCategories.map(c => c.name).join(', ')}</span></div>` : ''}
           </div>
         </div>
         
@@ -350,6 +355,9 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
   ${generateModals(staffMember)}
   
   <script>
+    // Staff member ID for API calls
+    const STAFF_ID = '${staffMember.id}';
+    
     // Tab switching
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -382,7 +390,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     
     async function promoteStaff() {
       const reason = document.getElementById('promoteReason').value;
-      const result = await apiCall('/admin/staff/${staffMember.id}/promote', 'POST', { reason });
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/promote', 'POST', { reason });
       if (result.success) { alert('Staff member promoted!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
@@ -390,7 +398,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     async function demoteStaff() {
       const reason = document.getElementById('demoteReason').value;
       if (!reason) { alert('Reason is required for demotion'); return; }
-      const result = await apiCall('/admin/staff/${staffMember.id}/demote', 'POST', { reason });
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/demote', 'POST', { reason });
       if (result.success) { alert('Staff member demoted!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
@@ -400,7 +408,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const reason = document.getElementById('infractReason').value;
       const notes = document.getElementById('infractNotes').value;
       if (!reason) { alert('Reason is required'); return; }
-      const result = await apiCall('/admin/staff/${staffMember.id}/infract', 'POST', { type, reason, notes });
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/infract', 'POST', { type, reason, notes });
       if (result.success) { alert('Infraction issued!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
@@ -409,14 +417,14 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const duration = document.getElementById('suspendDuration').value;
       const reason = document.getElementById('suspendReason').value;
       if (!duration || !reason) { alert('Duration and reason are required'); return; }
-      const result = await apiCall('/admin/staff/${staffMember.id}/suspend', 'POST', { duration, reason });
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/suspend', 'POST', { duration, reason });
       if (result.success) { alert('Staff member suspended!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
     
     async function wipeInfractions() {
       if (!confirm('Are you sure you want to wipe ALL infractions for this user? This cannot be undone!')) return;
-      const result = await apiCall('/admin/staff/${staffMember.id}/wipe-infractions', 'POST');
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/wipe-infractions', 'POST');
       if (result.success) { alert('Infractions wiped!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
@@ -436,7 +444,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     async function addNote() {
       const content = document.getElementById('newNote').value;
       if (!content) { alert('Note content is required'); return; }
-      const result = await apiCall('/admin/staff/${staffMember.id}/notes', 'POST', { content });
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/notes', 'POST', { content });
       if (result.success) location.reload();
       else alert('Error: ' + result.message);
     }
@@ -452,6 +460,14 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       if (!confirm('End this LOA early?')) return;
       const result = await apiCall('/admin/loa/' + id + '/end', 'POST');
       if (result.success) location.reload();
+      else alert('Error: ' + result.message);
+    }
+    
+    async function startLOA() {
+      const duration = document.getElementById('loaDuration').value;
+      const reason = document.getElementById('loaReason').value;
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/loa', 'POST', { duration, reason });
+      if (result.success) { alert('LOA started!'); location.reload(); }
       else alert('Error: ' + result.message);
     }
   </script>
