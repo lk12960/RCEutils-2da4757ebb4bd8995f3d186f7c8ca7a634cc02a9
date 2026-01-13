@@ -167,7 +167,7 @@ function registerApplicationRoutes(app) {
         `);
       }
       
-      res.redirect(\`/applications/admin/review/\${submissions[0].id}\`);
+      res.redirect(`/applications/admin/review/${submissions[0].id}`);
     } catch (error) {
       console.error('Error listing submissions:', error);
       res.status(500).send('Failed to load submissions');
@@ -247,7 +247,7 @@ function registerApplicationRoutes(app) {
         if (!validateQuestion(q)) {
           return res.status(400).json({ 
             success: false, 
-            message: \`Invalid question: \${q.question || 'Unknown'}\` 
+            message: `Invalid question: ${q.question || 'Unknown'}` 
           });
         }
       }
@@ -275,12 +275,12 @@ function registerApplicationRoutes(app) {
       
       if (format === 'json') {
         res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Content-Disposition', \`attachment; filename="\${form.name}_submissions.json"\`);
+        res.setHeader('Content-Disposition', `attachment; filename="${form.name}_submissions.json"`);
         res.send(JSON.stringify(submissions, null, 2));
       } else if (format === 'csv') {
         const csv = generateCSV(form, submissions);
         res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', \`attachment; filename="\${form.name}_submissions.csv"\`);
+        res.setHeader('Content-Disposition', `attachment; filename="${form.name}_submissions.csv"`);
         res.send(csv);
       }
     } catch (error) {
