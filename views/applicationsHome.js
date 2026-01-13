@@ -56,16 +56,10 @@ module.exports = function(user, forms, guildIcon, guildName) {
     </div>
     
     <div class="hub-actions">
-      ${checkIfAdmin(user.id) ? `
-        <a href="/applications/admin" class="hub-btn admin-btn">
-          <span class="btn-icon">⚙️</span>
-          Admin Dashboard
-        </a>
-        <a href="/applications/admin/builder" class="hub-btn create-btn">
-          <span class="btn-icon">➕</span>
-          Create New Form
-        </a>
-      ` : ''}
+      <a href="/admin" class="hub-btn admin-btn">
+        <span class="btn-icon">⚙️</span>
+        Admin Panel
+      </a>
       <a href="/logout" class="hub-btn logout-btn">
         <span class="btn-icon">🚪</span>
         Logout

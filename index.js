@@ -219,6 +219,19 @@ app.get('/', (req, res) => {
         </div>
         <div class="portal-glow"></div>
       </a>
+
+      <!-- Admin Panel -->
+      <a href="/admin" class="portal-card admin" style="grid-column: 1 / -1; max-width: 400px; margin: 0 auto;">
+        <div class="portal-icon">⚙️</div>
+        <h2 class="portal-title">Admin Panel</h2>
+        <p class="portal-description">
+          Manage ban appeals and applications.
+        </p>
+        <div class="portal-arrow">
+          Enter Portal <span>→</span>
+        </div>
+        <div class="portal-glow"></div>
+      </a>
     </div>
 
     <!-- Footer -->

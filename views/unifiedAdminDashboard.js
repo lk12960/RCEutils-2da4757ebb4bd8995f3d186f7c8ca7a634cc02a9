@@ -432,16 +432,19 @@ module.exports = function(user, data) {
         <span>📝 Applications</span>
         ${applicationStats.pending > 0 ? `<span class="tab-badge">${applicationStats.pending} pending</span>` : ''}
       </button>
+      <button class="tab-btn staff" data-tab="staff">
+        <span>👥 Staff Management</span>
+      </button>
     </div>
     
     <!-- Ban Appeals Tab -->
     <div class="tab-content active" id="appeals-tab">
       <!-- Stats -->
       <div class="stats-grid">
-        <div class="stat-card unread">
-          <div class="stat-icon">📬</div>
-          <div class="stat-value">${appealStats.unread || 0}</div>
-          <div class="stat-label">Unread Appeals</div>
+        <div class="stat-card">
+          <div class="stat-icon">📊</div>
+          <div class="stat-value">${appealStats.total || 0}</div>
+          <div class="stat-label">Total Appeals</div>
         </div>
         <div class="stat-card pending">
           <div class="stat-icon">⏳</div>
@@ -574,6 +577,78 @@ module.exports = function(user, data) {
               <span class="recent-status ${app.status}">${app.status}</span>
             </a>
           `).join('')}
+        </div>
+      </div>
+    </div>
+    
+    <!-- Staff Management Tab -->
+    <div class="tab-content" id="staff-tab">
+      <!-- Quick Actions -->
+      <div class="action-grid">
+        <a href="/admin/staff" class="action-card view-all">
+          <div class="action-icon">👥</div>
+          <div class="action-info">
+            <h3>Staff Directory</h3>
+            <p>View and manage all staff members</p>
+          </div>
+        </a>
+        <a href="/admin/staff?filter=suspended" class="action-card view-unread">
+          <div class="action-icon">⏸️</div>
+          <div class="action-info">
+            <h3>Suspended Staff</h3>
+            <p>View currently suspended members</p>
+          </div>
+        </a>
+      </div>
+      
+      <!-- Staff Categories -->
+      <div class="recent-section">
+        <div class="recent-header">
+          <h3>📊 Staff by Category</h3>
+          <a href="/admin/staff" class="view-all-link">View All →</a>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-top: 16px;">
+          <div class="stat-card" style="border-left: 4px solid #FFD700;">
+            <div class="stat-icon">👑</div>
+            <div class="stat-label">Executive Team</div>
+          </div>
+          <div class="stat-card" style="border-left: 4px solid #9B59B6;">
+            <div class="stat-icon">💼</div>
+            <div class="stat-label">Management</div>
+          </div>
+          <div class="stat-card" style="border-left: 4px solid #3498DB;">
+            <div class="stat-icon">🛡️</div>
+            <div class="stat-label">Administration</div>
+          </div>
+          <div class="stat-card" style="border-left: 4px solid #2ECC71;">
+            <div class="stat-icon">⚔️</div>
+            <div class="stat-label">Moderation</div>
+          </div>
+          <div class="stat-card" style="border-left: 4px solid #E91E63;">
+            <div class="stat-icon">🎨</div>
+            <div class="stat-label">Design Team</div>
+          </div>
+          <div class="stat-card" style="border-left: 4px solid #95A5A6;">
+            <div class="stat-icon">✅</div>
+            <div class="stat-label">Quality Control</div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="recent-section" style="margin-top: 24px;">
+        <div class="recent-header">
+          <h3>⚡ Quick Actions</h3>
+        </div>
+        <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px;">
+          <a href="/admin/staff" class="action-btn" style="padding: 12px 20px; background: var(--royal-blue); color: white; text-decoration: none; border-radius: 10px; font-weight: 600;">
+            👥 View All Staff
+          </a>
+          <a href="/admin/staff?sort=infractions-desc" class="action-btn" style="padding: 12px 20px; background: rgba(255, 71, 87, 0.15); color: #ff4757; text-decoration: none; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255, 71, 87, 0.3);">
+            ⚠️ Most Infractions
+          </a>
+          <a href="/admin/staff?filter=loa" class="action-btn" style="padding: 12px 20px; background: rgba(255, 165, 2, 0.15); color: #ffa502; text-decoration: none; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255, 165, 2, 0.3);">
+            🏖️ On LOA
+          </a>
         </div>
       </div>
     </div>

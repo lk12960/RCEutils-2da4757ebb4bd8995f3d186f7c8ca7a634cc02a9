@@ -586,6 +586,495 @@ function registerRoutes() {
   });
 
   // ============================================================================
+  // STAFF MANAGEMENT ROUTES
+  // ============================================================================
+  
+  const staffManager = require('./utils/staffManager');
+  const { getInfractionsByUserId, createInfraction, revokeInfraction, unrevokeInfraction, revokeAllInfractionsForUser } = require('./utils/infractionManager');
+  const { getUserNotes, addNote, removeNote } = require('./utils/noteManager');
+  const { getActiveLOA, endLOA: endLOARecord, createLOARequest, approveLOA, parseDuration } = require('./utils/loaManager');
+  
+  /**
+   * GET /admin/staff - Staff management dashboard
+   */
+  app.get('/admin/staff', requireAdminRole, async (req, res) => {
+    try {
+      const generateStaffDashboard = require('./views/staffDashboard');
+      
+      const staffMembers = await staffManager.getAllStaffMembers(global.discordClient);
+      
+      // Calculate stats
+      const stats = {
+        total: staffMembers.length,
+        active: staffMembers.filter(s => s.status === 'active').length,
+        suspended: staffMembers.filter(s => s.status === 'suspended').length,
+        onLOA: 0
+      };
+      
+      // Check LOA status for each member
+      for (const member of staffMembers) {
+        const loa = await getActiveLOA(member.id).catch(() => null);
+        if (loa) {
+          stats.onLOA++;
+          member.status = 'loa';
+        }
+      }
+      
+      res.send(generateStaffDashboard(req.session.user, {
+        staffMembers,
+        categories: staffManager.STAFF_CATEGORIES,
+        stats
+      }));
+    } catch (error) {
+      console.error('Error loading staff dashboard:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load staff dashboard.'));
+    }
+  });
+  
+  /**
+   * GET /admin/staff/:id - Staff profile page
+   */
+  app.get('/admin/staff/:id', requireAdminRole, async (req, res) => {
+    try {
+      const { renderStaffProfile } = require('./views/staffProfile');
+      const userId = req.params.id;
+      
+      const staffMember = await staffManager.getStaffMember(global.discordClient, userId);
+      if (!staffMember) {
+        return res.status(404).send(generateErrorPage('Not Found', 'Staff member not found.'));
+      }
+      
+      // Get additional data
+      const infractions = await getInfractionsByUserId(userId).catch(() => []);
+      const notes = await getUserNotes(userId).catch(() => []);
+      const loa = await getActiveLOA(userId).catch(() => null);
+      const allStaff = await staffManager.getAllStaffMembers(global.discordClient);
+      
+      res.send(renderStaffProfile(req.session.user, staffMember, {
+        infractions,
+        notes,
+        loa,
+        allStaff
+      }));
+    } catch (error) {
+      console.error('Error loading staff profile:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load staff profile.'));
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/promote - Promote staff member
+   */
+  app.post('/admin/staff/:id/promote', requireAdminRole, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      const result = await staffManager.promoteStaffMember(
+        global.discordClient,
+        req.params.id,
+        req.session.user.id,
+        reason
+      );
+      
+      // Send announcement
+      if (result.success && global.discordClient) {
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const channel = await global.discordClient.channels.fetch(staffManager.STAFF_ANNOUNCEMENT_CHANNEL).catch(() => null);
+          if (channel) {
+            const embed = new EmbedBuilder()
+              .setTitle('🎉 Staff Promotion!')
+              .setDescription(`Congratulations to <@${req.params.id}> on their promotion!`)
+              .setColor(0x00FF88)
+              .addFields([
+                { name: 'New Position', value: result.to.category + (result.to.position ? ` - ${result.to.position}` : ''), inline: true }
+              ])
+              .setTimestamp();
+            await channel.send({ content: `<@${req.params.id}>`, embeds: [embed] });
+          }
+        } catch (e) {
+          console.error('Failed to send promotion announcement:', e.message);
+        }
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Error promoting staff:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/demote - Demote staff member
+   */
+  app.post('/admin/staff/:id/demote', requireAdminRole, async (req, res) => {
+    try {
+      const { reason } = req.body;
+      if (!reason) {
+        return res.status(400).json({ success: false, message: 'Reason is required for demotion' });
+      }
+      
+      const result = await staffManager.demoteStaffMember(
+        global.discordClient,
+        req.params.id,
+        req.session.user.id,
+        reason
+      );
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Error demoting staff:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/infract - Issue infraction
+   */
+  app.post('/admin/staff/:id/infract', requireAdminRole, async (req, res) => {
+    try {
+      const { type, reason, notes } = req.body;
+      if (!reason) {
+        return res.status(400).json({ success: false, message: 'Reason is required' });
+      }
+      
+      const caseId = await createInfraction(req.params.id, req.session.user.id, type, reason, notes);
+      
+      // Log action
+      await staffManager.logStaffAction(req.params.id, 'INFRACTION_ISSUED', {
+        caseId,
+        type,
+        reason,
+        notes
+      }, req.session.user.id);
+      
+      // DM user about infraction
+      if (global.discordClient) {
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const user = await global.discordClient.users.fetch(req.params.id).catch(() => null);
+          if (user) {
+            const embed = new EmbedBuilder()
+              .setTitle('⚠️ Staff Infraction Issued')
+              .setColor(0xFF4757)
+              .addFields([
+                { name: 'Type', value: type, inline: true },
+                { name: 'Reason', value: reason, inline: false }
+              ])
+              .setTimestamp();
+            if (notes) embed.addFields({ name: 'Notes', value: notes, inline: false });
+            await user.send({ embeds: [embed] });
+          }
+        } catch (e) {
+          console.error('Failed to DM user about infraction:', e.message);
+        }
+      }
+      
+      res.json({ success: true, caseId });
+    } catch (error) {
+      console.error('Error issuing infraction:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/suspend - Suspend staff member
+   */
+  app.post('/admin/staff/:id/suspend', requireAdminRole, async (req, res) => {
+    try {
+      const { duration, reason } = req.body;
+      if (!duration || !reason) {
+        return res.status(400).json({ success: false, message: 'Duration and reason are required' });
+      }
+      
+      const durationMs = parseDuration(duration);
+      if (!durationMs) {
+        return res.status(400).json({ success: false, message: 'Invalid duration format' });
+      }
+      
+      const result = await staffManager.suspendStaffMember(
+        global.discordClient,
+        req.params.id,
+        req.session.user.id,
+        reason,
+        durationMs
+      );
+      
+      // DM user about suspension
+      if (global.discordClient) {
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const user = await global.discordClient.users.fetch(req.params.id).catch(() => null);
+          if (user) {
+            const embed = new EmbedBuilder()
+              .setTitle('⏸️ Staff Suspension')
+              .setDescription('You have been temporarily suspended from your staff position.')
+              .setColor(0x9B59B6)
+              .addFields([
+                { name: 'Reason', value: reason, inline: false },
+                { name: 'Duration', value: duration, inline: true },
+                { name: 'Ends', value: `<t:${Math.floor(result.endTime.getTime() / 1000)}:F>`, inline: true }
+              ])
+              .setTimestamp();
+            await user.send({ embeds: [embed] });
+          }
+        } catch (e) {
+          console.error('Failed to DM user about suspension:', e.message);
+        }
+      }
+      
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Error suspending staff:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/wipe-infractions - Wipe all infractions
+   */
+  app.post('/admin/staff/:id/wipe-infractions', requireAdminRole, async (req, res) => {
+    try {
+      await revokeAllInfractionsForUser(req.params.id);
+      
+      await staffManager.logStaffAction(req.params.id, 'INFRACTIONS_WIPED', {}, req.session.user.id);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error wiping infractions:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/staff/:id/notes - Add note
+   */
+  app.post('/admin/staff/:id/notes', requireAdminRole, async (req, res) => {
+    try {
+      const { content } = req.body;
+      if (!content) {
+        return res.status(400).json({ success: false, message: 'Note content is required' });
+      }
+      
+      const noteId = await addNote(req.params.id, req.session.user.id, content);
+      res.json({ success: true, noteId });
+    } catch (error) {
+      console.error('Error adding note:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * DELETE /admin/notes/:id - Delete note
+   */
+  app.delete('/admin/notes/:id', requireAdminRole, async (req, res) => {
+    try {
+      await removeNote(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/infractions/:id/revoke - Revoke infraction
+   */
+  app.post('/admin/infractions/:id/revoke', requireAdminRole, async (req, res) => {
+    try {
+      await revokeInfraction(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error revoking infraction:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/infractions/:id/unrevoke - Unrevoke infraction
+   */
+  app.post('/admin/infractions/:id/unrevoke', requireAdminRole, async (req, res) => {
+    try {
+      await unrevokeInfraction(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error unrevoking infraction:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/loa/:id/end - End LOA early
+   */
+  app.post('/admin/loa/:id/end', requireAdminRole, async (req, res) => {
+    try {
+      await endLOARecord(parseInt(req.params.id), true);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error ending LOA:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * GET /admin/staff/mass-infract - Mass infraction page
+   */
+  app.get('/admin/staff/mass-infract', requireAdminRole, async (req, res) => {
+    try {
+      const ids = (req.query.ids || '').split(',').filter(Boolean);
+      const staffMembers = [];
+      
+      for (const id of ids) {
+        const member = await staffManager.getStaffMember(global.discordClient, id);
+        if (member) staffMembers.push(member);
+      }
+      
+      const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
+      
+      res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mass Infract - Staff Management</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/applications.css">
+  <style>
+    .mass-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    .page-header { margin-bottom: 30px; }
+    .page-header h1 { font-size: 2rem; margin-bottom: 8px; }
+    .back-link { color: var(--text-secondary); text-decoration: none; }
+    .back-link:hover { color: var(--royal-blue); }
+    .selected-staff { background: var(--bg-card); border-radius: 12px; padding: 20px; margin-bottom: 24px; border: 1px solid var(--border-color); }
+    .selected-staff h3 { margin-bottom: 16px; }
+    .staff-list { display: flex; flex-wrap: wrap; gap: 12px; }
+    .staff-chip { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-dark); border-radius: 8px; }
+    .staff-chip img { width: 24px; height: 24px; border-radius: 50%; }
+    .staff-chip .remove { cursor: pointer; color: var(--text-muted); }
+    .staff-chip .remove:hover { color: #ff4757; }
+    .form-card { background: var(--bg-card); border-radius: 12px; padding: 24px; border: 1px solid var(--border-color); }
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; margin-bottom: 8px; font-weight: 500; }
+    .form-group select, .form-group textarea { width: 100%; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary); font-size: 1rem; }
+    .form-group textarea { min-height: 120px; resize: vertical; }
+    .form-actions { display: flex; gap: 12px; margin-top: 24px; }
+    .btn { padding: 14px 28px; border-radius: 10px; border: none; font-weight: 600; font-size: 1rem; cursor: pointer; transition: all 0.3s ease; }
+    .btn-primary { background: linear-gradient(135deg, #ff4757, #ff2f3f); color: white; }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(255, 71, 87, 0.4); }
+    .btn-secondary { background: transparent; border: 1px solid var(--border-color); color: var(--text-secondary); }
+  </style>
+</head>
+<body class="has-nav">
+  <nav class="top-nav">
+    <a href="/" class="nav-logo">
+      <img src="${serverLogoUrl}" alt="King's Customs">
+      <span class="nav-logo-text">King's Customs</span>
+    </a>
+    <div class="nav-links">
+      <a href="/" class="nav-link home"><span class="nav-link-icon">🏠</span><span class="nav-link-text">Home</span></a>
+      <a href="/admin" class="nav-link"><span class="nav-link-icon">⚙️</span><span class="nav-link-text">Admin</span></a>
+    </div>
+  </nav>
+  
+  <div class="mass-container">
+    <div class="page-header">
+      <a href="/admin/staff" class="back-link">← Back to Staff List</a>
+      <h1>⚠️ Mass Infract</h1>
+      <p style="color: var(--text-secondary);">Issue the same infraction to multiple staff members at once.</p>
+    </div>
+    
+    <div class="selected-staff">
+      <h3>Selected Staff (${staffMembers.length})</h3>
+      <div class="staff-list">
+        ${staffMembers.length === 0 ? '<p style="color: var(--text-muted);">No staff selected. Go back and select staff members.</p>' :
+          staffMembers.map(m => `
+            <div class="staff-chip" data-id="${m.id}">
+              <img src="${m.avatar}" alt="">
+              <span>${escapeHtml(m.username)}</span>
+              <span class="remove" onclick="removeStaff('${m.id}')">×</span>
+            </div>
+          `).join('')}
+      </div>
+    </div>
+    
+    ${staffMembers.length > 0 ? `
+      <div class="form-card">
+        <div class="form-group">
+          <label>Infraction Type</label>
+          <select id="infractType">
+            <option value="Notice">Notice</option>
+            <option value="Warning">Warning</option>
+            <option value="Strike">Strike</option>
+            <option value="Termination">Termination</option>
+            <option value="Blacklist">Blacklist</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label>Reason (required)</label>
+          <textarea id="infractReason" placeholder="Enter the reason for this infraction..."></textarea>
+        </div>
+        
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <textarea id="infractNotes" placeholder="Additional notes..."></textarea>
+        </div>
+        
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="window.location.href='/admin/staff'">Cancel</button>
+          <button class="btn btn-primary" onclick="submitMassInfract()">⚠️ Issue ${staffMembers.length} Infractions</button>
+        </div>
+      </div>
+    ` : ''}
+  </div>
+  
+  <script>
+    const selectedIds = ${JSON.stringify(ids)};
+    
+    function removeStaff(id) {
+      const index = selectedIds.indexOf(id);
+      if (index > -1) selectedIds.splice(index, 1);
+      window.location.href = '/admin/staff/mass-infract?ids=' + selectedIds.join(',');
+    }
+    
+    async function submitMassInfract() {
+      const type = document.getElementById('infractType').value;
+      const reason = document.getElementById('infractReason').value;
+      const notes = document.getElementById('infractNotes').value;
+      
+      if (!reason) { alert('Reason is required'); return; }
+      if (!confirm('Are you sure you want to issue ' + selectedIds.length + ' infractions?')) return;
+      
+      let success = 0, failed = 0;
+      for (const id of selectedIds) {
+        try {
+          const res = await fetch('/admin/staff/' + id + '/infract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type, reason, notes })
+          });
+          const data = await res.json();
+          if (data.success) success++;
+          else failed++;
+        } catch (e) {
+          failed++;
+        }
+      }
+      
+      alert('Infractions issued: ' + success + ' successful, ' + failed + ' failed');
+      window.location.href = '/admin/staff';
+    }
+  </script>
+</body>
+</html>
+      `);
+    } catch (error) {
+      console.error('Error loading mass infract page:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load page.'));
+    }
+  });
+
+  // ============================================================================
   // APPEAL ROUTES
   // ============================================================================
 
@@ -1385,6 +1874,10 @@ function generateStyledNotBannedPage(user, logoUrl) {
         <a href="/" class="submit-button" style="flex: 1; max-width: 200px; text-decoration: none; font-size: 1rem; padding: 14px 24px;">
           <span class="button-icon">🏠</span>
           <span class="button-text">Home</span>
+        </a>
+        <a href="/admin" style="flex: 1; max-width: 200px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 1rem; padding: 14px 24px; background: linear-gradient(135deg, var(--royal-blue), var(--royal-blue-dark)); border: none; border-radius: 8px; color: white; transition: all 0.3s ease;">
+          <span>⚙️</span>
+          <span>Admin Panel</span>
         </a>
         <a href="/logout" class="logout-button" style="flex: 1; max-width: 200px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 1rem; padding: 14px 24px; background: transparent; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-muted); transition: all 0.3s ease;">
           <span>🚪</span>

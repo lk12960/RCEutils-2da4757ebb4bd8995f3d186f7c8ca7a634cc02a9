@@ -234,6 +234,33 @@ body {
   box-shadow: 0 20px 60px rgba(0, 255, 136, 0.3), 0 0 40px rgba(0, 255, 136, 0.1);
 }
 
+.portal-card.admin {
+  --card-color: #2E7EFE;
+}
+
+.portal-card.admin:hover {
+  border-color: var(--card-color);
+  box-shadow: 0 20px 60px rgba(46, 126, 254, 0.3), 0 0 40px rgba(46, 126, 254, 0.1);
+}
+
+.portal-card.admin .portal-icon {
+  background: linear-gradient(135deg, rgba(46, 126, 254, 0.2), rgba(46, 126, 254, 0.1));
+  border: 2px solid rgba(46, 126, 254, 0.3);
+}
+
+.portal-card.admin:hover .portal-icon {
+  box-shadow: 0 0 30px rgba(46, 126, 254, 0.4);
+  border-color: rgba(46, 126, 254, 0.6);
+}
+
+.portal-card.admin:hover .portal-title {
+  color: #2E7EFE;
+}
+
+.portal-card.admin:hover .portal-arrow {
+  color: #2E7EFE;
+}
+
 /* Card icon */
 .portal-icon {
   width: 80px;
