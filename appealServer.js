@@ -5,7 +5,7 @@ const FileStore = require('session-file-store')(session);
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { getBanAppeal, getBanCaseDetails, getCooldownInfo, createBanAppeal } = require('./utils/banAppeals');
+const { getBanAppeal, getBanCaseDetails, getCooldownInfo, createBanAppeal, getAllBanAppeals, getAppealStats, markAppealAsRead, updateAppealActivity, getPendingAppealsForNav, deleteBanAppeal, approveBanAppeal, denyBanAppeal, TARGET_GUILD_ID } = require('./utils/banAppeals');
 
 // Use provided app or create new one
 let app = null;
@@ -330,6 +330,262 @@ function registerRoutes() {
   });
 
   // ============================================================================
+  // ADMIN ROUTES
+  // ============================================================================
+  
+  // Admin middleware - checks for admin roles in target guild
+  const requireAdminRole = async (req, res, next) => {
+    if (!req.session || !req.session.user) {
+      req.session.returnTo = req.originalUrl;
+      return res.redirect('/login');
+    }
+    
+    const adminRoles = ['1419399437997834301', '1411100904949682236'];
+    const userId = req.session.user.id;
+    
+    let hasAdminRole = false;
+    if (global.discordClient) {
+      try {
+        const guild = global.discordClient.guilds.cache.get(TARGET_GUILD_ID);
+        if (guild) {
+          const member = await guild.members.fetch(userId).catch(() => null);
+          if (member) {
+            for (const roleId of adminRoles) {
+              if (member.roles.cache.has(roleId)) {
+                hasAdminRole = true;
+                break;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Error checking admin role:`, err.message);
+      }
+    }
+    
+    if (!hasAdminRole) {
+      return res.status(403).send(generateErrorPage('Access Denied', 'You do not have permission to access the admin dashboard.'));
+    }
+    
+    next();
+  };
+  
+  /**
+   * GET /admin - Unified admin dashboard
+   */
+  app.get('/admin', requireAdminRole, async (req, res) => {
+    try {
+      const generateUnifiedDashboard = require('./views/unifiedAdminDashboard');
+      const { getFormSubmissions, getAllForms } = require('./utils/applicationsManager');
+      
+      // Get appeal stats
+      const appealStats = await getAppealStats(TARGET_GUILD_ID);
+      const recentAppeals = await getAllBanAppeals({ guildId: TARGET_GUILD_ID });
+      
+      // Get application stats
+      const forms = await getAllForms(true);
+      let applicationStats = { total: 0, pending: 0, accepted: 0, denied: 0 };
+      let recentApplications = [];
+      
+      for (const form of forms) {
+        const submissions = await getFormSubmissions(form.id);
+        applicationStats.total += submissions.length;
+        applicationStats.pending += submissions.filter(s => s.status === 'submitted').length;
+        applicationStats.accepted += submissions.filter(s => s.status === 'accepted').length;
+        applicationStats.denied += submissions.filter(s => s.status === 'denied').length;
+        
+        // Add form name to submissions for display
+        submissions.forEach(s => s.form_name = form.name);
+        recentApplications = recentApplications.concat(submissions);
+      }
+      
+      // Sort recent applications by date
+      recentApplications.sort((a, b) => new Date(b.submitted_at || b.created_at) - new Date(a.submitted_at || a.created_at));
+      
+      res.send(generateUnifiedDashboard(req.session.user, {
+        appealStats,
+        applicationStats,
+        recentAppeals: recentAppeals.slice(0, 10),
+        recentApplications: recentApplications.slice(0, 10)
+      }));
+    } catch (error) {
+      console.error('Error loading admin dashboard:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load admin dashboard.'));
+    }
+  });
+  
+  /**
+   * GET /admin/appeals - Ban appeals list
+   */
+  app.get('/admin/appeals', requireAdminRole, async (req, res) => {
+    try {
+      const generateAppealsList = require('./views/appealsAdminList');
+      const filter = req.query.filter || 'all';
+      
+      let filters = { guildId: TARGET_GUILD_ID };
+      if (filter === 'unread') {
+        filters.isRead = false;
+        filters.status = 'pending';
+      } else if (filter === 'pending') {
+        filters.status = 'pending';
+      } else if (filter === 'approved') {
+        filters.status = 'approved';
+      } else if (filter === 'denied') {
+        filters.status = 'denied';
+      }
+      
+      const appeals = await getAllBanAppeals(filter === 'all' ? { guildId: TARGET_GUILD_ID } : filters);
+      res.send(generateAppealsList(req.session.user, appeals, filter));
+    } catch (error) {
+      console.error('Error loading appeals list:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load appeals list.'));
+    }
+  });
+  
+  /**
+   * GET /admin/appeals/review/:id - Review individual appeal
+   */
+  app.get('/admin/appeals/review/:id', requireAdminRole, async (req, res) => {
+    try {
+      const generateReviewPage = require('./views/appealReviewPage');
+      const appealId = parseInt(req.params.id);
+      
+      const appeal = await getBanAppeal(appealId);
+      if (!appeal) {
+        return res.status(404).send(generateErrorPage('Not Found', 'Appeal not found.'));
+      }
+      
+      // Mark as read
+      await markAppealAsRead(appealId);
+      
+      // Get ban case details
+      const banCase = await getBanCaseDetails(appeal.user_id, appeal.guild_id).catch(() => null);
+      
+      // Get all pending appeals for navigation
+      const allAppeals = await getPendingAppealsForNav(TARGET_GUILD_ID);
+      
+      // If current appeal is not pending, add it to the list for navigation
+      if (appeal.status !== 'pending' && !allAppeals.find(a => a.id === appeal.id)) {
+        allAppeals.unshift(appeal);
+      }
+      
+      res.send(generateReviewPage(req.session.user, appeal, banCase, allAppeals));
+    } catch (error) {
+      console.error('Error loading appeal review:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to load appeal.'));
+    }
+  });
+  
+  /**
+   * POST /admin/appeals/:id/approve - Approve appeal
+   */
+  app.post('/admin/appeals/:id/approve', requireAdminRole, async (req, res) => {
+    try {
+      const appealId = parseInt(req.params.id);
+      const appeal = await getBanAppeal(appealId);
+      
+      if (!appeal) {
+        return res.status(404).json({ success: false, message: 'Appeal not found' });
+      }
+      
+      if (appeal.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Appeal already reviewed' });
+      }
+      
+      // Approve the appeal
+      await approveBanAppeal(appealId, req.session.user.id);
+      
+      // Try to unban the user
+      if (global.discordClient) {
+        try {
+          const guild = global.discordClient.guilds.cache.get(appeal.guild_id);
+          if (guild) {
+            await guild.members.unban(appeal.user_id, `Ban appeal approved by ${req.session.user.username}`);
+            console.log(`✅ Unbanned user ${appeal.user_id} from guild ${appeal.guild_id}`);
+          }
+        } catch (unbanErr) {
+          console.error('Error unbanning user:', unbanErr.message);
+        }
+        
+        // DM user about approval
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const discordUser = await global.discordClient.users.fetch(appeal.user_id).catch(() => null);
+          if (discordUser) {
+            const dmEmbed = new EmbedBuilder()
+              .setTitle('✅ Ban Appeal Approved!')
+              .setDescription(`Your ban appeal for **King's Customs** has been approved! You have been unbanned.`)
+              .setColor(0x00FF88)
+              .setFooter({ text: 'Welcome back! Please follow the rules.' })
+              .setTimestamp();
+            
+            await discordUser.send({ embeds: [dmEmbed] });
+          }
+        } catch (dmErr) {
+          console.error('Failed to DM user about approval:', dmErr.message);
+        }
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error approving appeal:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+  
+  /**
+   * POST /admin/appeals/:id/deny - Deny appeal
+   */
+  app.post('/admin/appeals/:id/deny', requireAdminRole, async (req, res) => {
+    try {
+      const appealId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      const appeal = await getBanAppeal(appealId);
+      
+      if (!appeal) {
+        return res.status(404).json({ success: false, message: 'Appeal not found' });
+      }
+      
+      if (appeal.status !== 'pending') {
+        return res.status(400).json({ success: false, message: 'Appeal already reviewed' });
+      }
+      
+      // Deny the appeal with 14 day cooldown
+      await denyBanAppeal(appealId, req.session.user.id, reason || 'No reason provided');
+      
+      // DM user about denial
+      if (global.discordClient) {
+        try {
+          const { EmbedBuilder } = require('discord.js');
+          const discordUser = await global.discordClient.users.fetch(appeal.user_id).catch(() => null);
+          if (discordUser) {
+            const cooldownEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+            const dmEmbed = new EmbedBuilder()
+              .setTitle('❌ Ban Appeal Denied')
+              .setDescription(`Your ban appeal for **King's Customs** has been denied.`)
+              .setColor(0xFF4757)
+              .addFields([
+                { name: 'Reason', value: reason || 'No reason provided', inline: false },
+                { name: 'Cooldown', value: `You may submit another appeal after ${cooldownEnd.toLocaleDateString()}`, inline: false }
+              ])
+              .setTimestamp();
+            
+            await discordUser.send({ embeds: [dmEmbed] });
+          }
+        } catch (dmErr) {
+          console.error('Failed to DM user about denial:', dmErr.message);
+        }
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error denying appeal:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  // ============================================================================
   // APPEAL ROUTES
   // ============================================================================
 
@@ -521,90 +777,98 @@ function registerRoutes() {
       return res.status(403).json({ success: false, message: 'You are on cooldown' });
     }
     
-    // Create appeal
-    const appealDbId = await createBanAppeal(appeal.userId, appeal.guildId, reason_for_ban, why_unban);
+    // Create appeal with user info
+    const user = req.session.user;
+    const appealDbId = await createBanAppeal(
+      appeal.userId, 
+      appeal.guildId, 
+      reason_for_ban, 
+      why_unban,
+      user.username,
+      user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null
+    );
     console.log(`📝 Created appeal in database: ID ${appealDbId} for user ${appeal.userId}`);
     
-    // Send to appeals channel
+    // Send simplified notification to appeals channel (like applications)
     let channelSent = false;
     if (global.discordClient) {
-      const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-      const guild = global.discordClient.guilds.cache.get(appeal.guildId);
+      const { EmbedBuilder } = require('discord.js');
       
-      if (guild) {
-        const APPEALS_CHANNEL_ID = '1459306472004649032';
-        const appealsChannel = guild.channels.cache.get(APPEALS_CHANNEL_ID);
-        
-        if (appealsChannel) {
-          try {
-            const user = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
-            
-            const appealEmbed = new EmbedBuilder()
-              .setTitle('📝 New Ban Appeal')
-              .setColor(0x2E7EFE)
-              .addFields([
-                { name: '👤 User', value: user ? `${user.tag} (<@${appeal.userId}>)` : `<@${appeal.userId}>`, inline: true },
-                { name: '🆔 User ID', value: appeal.userId, inline: true },
-                { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false },
-                { name: '📋 What led to your ban?', value: reason_for_ban, inline: false },
-                { name: '❓ Why should you be unbanned?', value: why_unban, inline: false }
-              ])
-              .setFooter({ text: `Appeal ID: ${appealDbId}` })
-              .setTimestamp();
-            
-            if (user && user.avatarURL()) {
-              appealEmbed.setThumbnail(user.avatarURL());
-            }
-            
-            if (appeal.banInfo) {
-              if (appeal.banInfo.reason) {
-                appealEmbed.addFields({ name: '⚖️ Ban Reason', value: appeal.banInfo.reason, inline: false });
-              }
-              if (appeal.banInfo.moderator) {
-                appealEmbed.addFields({ name: '👮 Banned By', value: appeal.banInfo.moderator, inline: true });
-              }
-              if (appeal.banInfo.caseId) {
-                appealEmbed.addFields({ name: '🔢 Case ID', value: `#${appeal.banInfo.caseId}`, inline: true });
-              }
-            }
-            
-            const buttons = new ActionRowBuilder().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`ban_appeal_approve:${appealDbId}`)
-                .setLabel('Approve')
-                .setStyle(ButtonStyle.Success)
-                .setEmoji('✅'),
-              new ButtonBuilder()
-                .setCustomId(`ban_appeal_deny:${appealDbId}`)
-                .setLabel('Deny')
-                .setStyle(ButtonStyle.Danger)
-                .setEmoji('❌')
-            );
-            
-            // Hardcoded management role ping
-            const managementRoleId = '1411100904949682236';
-            const pingContent = `<@&${managementRoleId}>`;
-            
-            await appealsChannel.send({ 
-              content: pingContent,
-              embeds: [appealEmbed], 
-              components: [buttons] 
-            });
-            
-            channelSent = true;
-            console.log(`✅ Appeal ${appealDbId} sent to channel ${APPEALS_CHANNEL_ID}`);
-          } catch (channelError) {
-            console.error(`❌ Failed to send appeal to channel:`, channelError);
-            // Don't throw - appeal is already in DB, just log the error
-          }
-        } else {
-          console.error(`❌ Appeals channel ${APPEALS_CHANNEL_ID} not found`);
+      // Find channel across all guilds
+      const APPEALS_CHANNEL_ID = '1459306472004649032';
+      let appealsChannel = null;
+      
+      for (const guild of global.discordClient.guilds.cache.values()) {
+        appealsChannel = guild.channels.cache.get(APPEALS_CHANNEL_ID);
+        if (appealsChannel) break;
+        try {
+          appealsChannel = await guild.channels.fetch(APPEALS_CHANNEL_ID);
+          if (appealsChannel) break;
+        } catch (err) {
+          // Channel not in this guild
         }
-      } else {
-        console.error(`❌ Guild ${appeal.guildId} not found`);
       }
-    } else {
-      console.error(`❌ Discord client not available`);
+      
+      // Try direct fetch as fallback
+      if (!appealsChannel) {
+        try {
+          appealsChannel = await global.discordClient.channels.fetch(APPEALS_CHANNEL_ID);
+        } catch (err) {
+          console.error(`❌ Appeals channel ${APPEALS_CHANNEL_ID} not found:`, err.message);
+        }
+      }
+      
+      if (appealsChannel) {
+        try {
+          const discordUser = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
+          
+          // Simplified embed - just shows submission notification (like applications)
+          const appealEmbed = new EmbedBuilder()
+            .setTitle('⚖️ New Ban Appeal Submitted')
+            .setColor(0xFF4757)
+            .setDescription(`A new ban appeal has been submitted and is awaiting review.`)
+            .addFields([
+              { name: '👤 Applicant', value: discordUser ? `${discordUser.tag}` : user.username, inline: true },
+              { name: '🆔 User ID', value: `<@${appeal.userId}>`, inline: true },
+              { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+            ])
+            .setFooter({ text: `Appeal ID: ${appealDbId} | Review on admin dashboard` })
+            .setTimestamp();
+          
+          if (discordUser && discordUser.avatarURL()) {
+            appealEmbed.setThumbnail(discordUser.avatarURL());
+          }
+          
+          const mgmtRole = '1411100904949682236';
+          await appealsChannel.send({ content: `<@&${mgmtRole}>`, embeds: [appealEmbed] });
+          channelSent = true;
+          console.log(`📨 Sent appeal notification to Discord channel`);
+        } catch (channelError) {
+          console.error('Error sending to appeals channel:', channelError);
+        }
+      }
+      
+      // DM user about submission
+      try {
+        const discordUser = await global.discordClient.users.fetch(appeal.userId).catch(() => null);
+        if (discordUser) {
+          const dmEmbed = new EmbedBuilder()
+            .setTitle('⚖️ Ban Appeal Submitted!')
+            .setDescription(`Your ban appeal for **King's Customs** has been successfully submitted.`)
+            .setColor(0xFF4757)
+            .addFields([
+              { name: '📊 Status', value: 'Pending Review', inline: true },
+              { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+            ])
+            .setFooter({ text: 'You will receive another DM when your appeal has been reviewed.' })
+            .setTimestamp();
+          
+          await discordUser.send({ embeds: [dmEmbed] });
+          console.log(`✅ Sent appeal submission DM to user ${discordUser.tag}`);
+        }
+      } catch (dmErr) {
+        console.error(`Failed to DM user about appeal submission:`, dmErr.message);
+      }
     }
     
     if (!channelSent) {

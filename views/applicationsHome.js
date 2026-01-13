@@ -129,10 +129,8 @@ function escapeHtml(text) {
 }
 
 function checkIfAdmin(userId, userRoles = []) {
-  const adminUsers = ['698200964917624936', '943969479984033833'];
+  // Admin role IDs - users with any of these roles can access admin panel
   const adminRoles = ['1419399437997834301', '1411100904949682236'];
-  
-  if (adminUsers.includes(userId)) return true;
   
   // Check if user has any admin roles
   for (const roleId of adminRoles) {

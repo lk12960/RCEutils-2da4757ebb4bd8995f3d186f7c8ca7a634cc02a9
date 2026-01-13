@@ -32,45 +32,40 @@ function registerApplicationRoutes(app) {
     next();
   };
 
+  // Target guild for role checks
+  const TARGET_GUILD_ID = '1297697183503745066';
+  
   const requireAdmin = async (req, res, next) => {
     if (!req.session || !req.session.user) {
       req.session.returnTo = req.originalUrl;
       return res.redirect('/login');
     }
     
-    // Hardcoded admin user IDs
-    const adminUsers = ['698200964917624936', '943969479984033833'];
-    // Admin role IDs
+    // Admin role IDs - users with any of these roles can access admin panel
     const adminRoles = ['1419399437997834301', '1411100904949682236'];
     const userId = req.session.user.id;
     
     console.log(`🔍 Admin check for user ${userId}`);
     
-    // Check if user is in hardcoded list
-    if (adminUsers.includes(userId)) {
-      console.log(`   ✅ Admin access granted (hardcoded user)`);
-      return next();
-    }
-    
-    // Check if user has admin role in any guild
+    // Check if user has admin role in the target guild only
     let hasAdminRole = false;
     if (global.discordClient) {
-      for (const guild of global.discordClient.guilds.cache.values()) {
-        try {
+      try {
+        const guild = global.discordClient.guilds.cache.get(TARGET_GUILD_ID);
+        if (guild) {
           const member = await guild.members.fetch(userId).catch(() => null);
           if (member) {
             for (const roleId of adminRoles) {
               if (member.roles.cache.has(roleId)) {
                 hasAdminRole = true;
-                console.log(`   ✅ Admin access granted (has role ${roleId})`);
+                console.log(`   ✅ Admin access granted (has role ${roleId} in guild ${TARGET_GUILD_ID})`);
                 break;
               }
             }
           }
-          if (hasAdminRole) break;
-        } catch (err) {
-          // Member not in this guild, continue
         }
+      } catch (err) {
+        console.error(`Error checking admin role:`, err.message);
       }
     }
     
