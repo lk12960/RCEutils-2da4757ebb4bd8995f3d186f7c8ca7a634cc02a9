@@ -334,7 +334,81 @@ function registerRoutes() {
   // ============================================================================
 
   /**
-   * GET / - Home/status page (for appeal system, not main site)
+   * GET /appeal - Main appeal entry point - checks ban status and redirects accordingly
+   */
+  app.get('/appeal', requireAuth, async (req, res) => {
+    const userId = req.session.user.id;
+    const db = require('./database/db');
+    const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
+    
+    try {
+      // Check if user has any active bans
+      const bans = await new Promise((resolve, reject) => {
+        db.all(
+          `SELECT * FROM cases WHERE user_id = ? AND action = 'BAN' ORDER BY timestamp DESC`,
+          [String(userId)],
+          (err, rows) => err ? reject(err) : resolve(rows || [])
+        );
+      });
+      
+      if (bans.length === 0) {
+        // User is NOT banned - show styled "not banned" page
+        return res.send(generateStyledNotBannedPage(req.session.user, serverLogoUrl));
+      }
+      
+      // User IS banned - check for existing appeal link or create one
+      const ban = bans[0]; // Most recent ban
+      
+      // Look for an existing active appeal link for this user
+      let existingAppealId = null;
+      for (const [id, data] of appealData.entries()) {
+        if (data.userId === userId && data.guildId === ban.guild_id && data.expiresAt > Date.now()) {
+          existingAppealId = id;
+          break;
+        }
+      }
+      
+      if (existingAppealId) {
+        // Redirect to existing appeal
+        return res.redirect(`/appeal/${existingAppealId}`);
+      }
+      
+      // Create a new appeal link for this user
+      const banInfo = {
+        reason: ban.reason || 'No reason provided',
+        moderator: ban.mod_username || 'Unknown',
+        caseId: ban.id,
+        timestamp: new Date(ban.timestamp).getTime(),
+        guildName: "King's Customs",
+        guildIcon: serverLogoUrl
+      };
+      
+      // Create appeal entry
+      const appealId = require('crypto').randomBytes(16).toString('hex');
+      const expiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000); // 30 days
+      
+      appealData.set(appealId, {
+        userId,
+        guildId: ban.guild_id,
+        banInfo,
+        createdAt: Date.now(),
+        expiresAt,
+        lastAccessedAt: Date.now()
+      });
+      
+      saveAppealData();
+      
+      // Redirect to the new appeal
+      res.redirect(`/appeal/${appealId}`);
+      
+    } catch (error) {
+      console.error('Error checking ban status:', error);
+      res.status(500).send(generateErrorPage('Error', 'Failed to check ban status. Please try again later.'));
+    }
+  });
+
+  /**
+   * GET /appeal-home - Legacy home/status page (redirects to /appeal)
    */
   app.get('/appeal-home', requireAuth, async (req, res) => {
   const userId = req.session.user.id;
@@ -950,6 +1024,76 @@ function generateBanStatusPage(user, bans) {
       
       <p class="info-text">To submit a ban appeal, use the link provided in your ban notification DM.</p>
       <a href="/logout" class="logout-link">Logout</a>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+function generateStyledNotBannedPage(user, logoUrl) {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Not Banned - King's Customs</title>
+  <link rel="stylesheet" href="/css/appeal.css">
+  <link rel="stylesheet" href="/css/home.css">
+</head>
+<body>
+  <!-- Animated background particles -->
+  <div class="particles">
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+  </div>
+
+  <div class="home-container" style="max-width: 600px;">
+    <div class="logo-section">
+      <img src="${logoUrl}" alt="King's Customs" class="server-logo">
+    </div>
+    
+    <div class="appeal-card" style="text-align: center; margin-top: 20px;">
+      <div class="status-icon-wrapper" style="margin-bottom: 24px;">
+        <div style="font-size: 5rem; animation: bounce 0.6s ease;">✅</div>
+      </div>
+      
+      <h1 style="color: var(--success); font-size: 2rem; margin-bottom: 16px;">You're Not Banned!</h1>
+      
+      <p style="color: var(--text-secondary); font-size: 1.15rem; line-height: 1.7; margin-bottom: 24px;">
+        Great news, <strong style="color: var(--text-primary);">${escapeHtml(user.username)}</strong>! 
+        You are not currently banned from <strong style="color: var(--royal-blue);">King's Customs</strong>.
+      </p>
+      
+      <div style="background: rgba(0, 255, 136, 0.1); border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 12px; padding: 20px; margin: 24px 0;">
+        <p style="color: var(--text-secondary); font-size: 1rem; margin: 0;">
+          🎉 Your account is in good standing. Continue enjoying the community!
+        </p>
+      </div>
+      
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-top: 32px;">
+        <a href="/" class="submit-button" style="flex: 1; max-width: 200px; text-decoration: none; font-size: 1rem; padding: 14px 24px;">
+          <span class="button-icon">🏠</span>
+          <span class="button-text">Home</span>
+        </a>
+        <a href="/logout" class="logout-button" style="flex: 1; max-width: 200px; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 1rem; padding: 14px 24px; background: transparent; border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-muted); transition: all 0.3s ease;">
+          <span>🚪</span>
+          <span>Logout</span>
+        </a>
+      </div>
+    </div>
+    
+    <div class="home-footer" style="margin-top: 40px;">
+      <p>© ${new Date().getFullYear()} King's Customs. All rights reserved.</p>
     </div>
   </div>
 </body>

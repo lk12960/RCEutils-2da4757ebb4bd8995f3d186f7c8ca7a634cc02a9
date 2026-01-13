@@ -486,70 +486,115 @@ async function sendApplicationNotification(formId, submissionId, userId, usernam
   
   const { EmbedBuilder } = require('discord.js');
   const form = await getFormById(formId);
-  const guild = global.discordClient.guilds.cache.first();
   const APPLICATIONS_CHANNEL_ID = '1460375837462237427';
-  let channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
   
-  // Try to fetch if not in cache
-  if (!channel) {
+  // Find the channel across all guilds (in case it's in a different guild than the first one)
+  let channel = null;
+  for (const guild of global.discordClient.guilds.cache.values()) {
+    channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+    if (channel) break;
+    
+    // Try to fetch if not in cache
     try {
       channel = await guild.channels.fetch(APPLICATIONS_CHANNEL_ID);
+      if (channel) break;
     } catch (err) {
-      console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found:`, err.message);
-      return;
+      // Channel not in this guild, continue to next
     }
   }
   
+  // Also try fetching directly from client
   if (!channel) {
-    console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found`);
-    return;
+    try {
+      channel = await global.discordClient.channels.fetch(APPLICATIONS_CHANNEL_ID);
+    } catch (err) {
+      console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found:`, err.message);
+    }
   }
   
   const submission = await getSubmissionById(submissionId);
   const user = await global.discordClient.users.fetch(userId).catch(() => null);
   
-  const embed = new EmbedBuilder()
-    .setTitle('📋 New Application Submitted')
-    .setColor(0x2E7EFE)
-    .setDescription(`**${form.name}** application has been submitted`)
-    .addFields([
-      { name: '👤 Applicant', value: user ? `${user.tag}` : username, inline: true },
-      { name: '🆔 User ID', value: `<@${userId}>`, inline: true },
-      { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
-    ])
-    .setTimestamp();
-  
-  if (user && user.avatarURL()) {
-    embed.setThumbnail(user.avatarURL());
+  // Send to channel if found
+  if (channel) {
+    const embed = new EmbedBuilder()
+      .setTitle('📋 New Application Submitted')
+      .setColor(0x2E7EFE)
+      .setDescription(`**${form.name}** application has been submitted`)
+      .addFields([
+        { name: '👤 Applicant', value: user ? `${user.tag}` : username, inline: true },
+        { name: '🆔 User ID', value: `<@${userId}>`, inline: true },
+        { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
+      ])
+      .setTimestamp();
+    
+    if (user && user.avatarURL()) {
+      embed.setThumbnail(user.avatarURL());
+    }
+    
+    if (submission && submission.roblox_username) {
+      embed.addFields({ 
+        name: '🎮 Roblox Account', 
+        value: `${submission.roblox_username} (ID: ${submission.roblox_id || 'Unknown'})`, 
+        inline: false 
+      });
+    }
+    
+    embed.setFooter({ text: `Submission ID: ${submissionId} | Responses NOT included for privacy` });
+    
+    const mgmtRole = '1411100904949682236';
+    await channel.send({ content: `<@&${mgmtRole}>`, embeds: [embed] });
+    console.log(`✅ Sent application submission notification to Discord channel`);
+  } else {
+    console.error(`❌ Could not find applications channel ${APPLICATIONS_CHANNEL_ID}`);
   }
   
-  if (submission.roblox_username) {
-    embed.addFields({ 
-      name: '🎮 Roblox Account', 
-      value: `${submission.roblox_username} (ID: ${submission.roblox_id || 'Unknown'})`, 
-      inline: false 
-    });
+  // DM user about submission
+  if (user) {
+    try {
+      const dmEmbed = new EmbedBuilder()
+        .setTitle('📋 Application Submitted!')
+        .setDescription(`Your application for **${form.name}** has been successfully submitted.`)
+        .setColor(0x2E7EFE)
+        .addFields([
+          { name: '📊 Status', value: 'Pending Review', inline: true },
+          { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+        ])
+        .setFooter({ text: 'You will receive another DM when your application has been reviewed.' })
+        .setTimestamp();
+      
+      await user.send({ embeds: [dmEmbed] });
+      console.log(`✅ Sent application submission DM to user ${user.tag}`);
+    } catch (err) {
+      console.error(`Failed to DM user ${userId} about submission:`, err.message);
+    }
   }
-  
-  embed.setFooter({ text: `Submission ID: ${submissionId} | Responses NOT included for privacy` });
-  
-  const mgmtRole = '1411100904949682236';
-  await channel.send({ content: `<@&${mgmtRole}>`, embeds: [embed] });
-  console.log(`✅ Sent application submission notification to Discord`);
 }
 
 async function sendReviewNotification(submissionId, status, customStatus, reviewerId) {
   const { EmbedBuilder } = require('discord.js');
   const submission = await getSubmissionById(submissionId);
   const form = await getFormById(submission.form_id);
-  const guild = global.discordClient.guilds.cache.first();
   const APPLICATIONS_CHANNEL_ID = '1460375837462237427';
-  let channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
   
-  // Try to fetch if not in cache
-  if (!channel) {
+  // Find the channel across all guilds
+  let channel = null;
+  for (const guild of global.discordClient.guilds.cache.values()) {
+    channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+    if (channel) break;
+    
     try {
       channel = await guild.channels.fetch(APPLICATIONS_CHANNEL_ID);
+      if (channel) break;
+    } catch (err) {
+      // Channel not in this guild, continue
+    }
+  }
+  
+  // Also try fetching directly from client
+  if (!channel) {
+    try {
+      channel = await global.discordClient.channels.fetch(APPLICATIONS_CHANNEL_ID);
     } catch (err) {
       console.error(`❌ Applications channel fetch failed:`, err.message);
     }
