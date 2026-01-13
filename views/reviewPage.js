@@ -89,6 +89,9 @@ module.exports = function(user, form, submission, questions, responses, allSubmi
       <button onclick="showCustomStatus()" class="review-btn custom">
         📌 Custom Status
       </button>
+      <button onclick="deleteSubmission()" class="review-btn delete">
+        🗑️ Delete Response
+      </button>
     </div>
 
     <div class="review-navigation">
@@ -177,6 +180,29 @@ module.exports = function(user, form, submission, questions, responses, allSubmi
         
         if (data.success) {
           alert('Custom status set successfully!');
+          window.location.href = '/applications/admin';
+        } else {
+          alert('Error: ' + data.message);
+        }
+      } catch (error) {
+        alert('Network error occurred');
+      }
+    }
+
+    async function deleteSubmission() {
+      if (!confirm('Are you sure you want to DELETE this submission?\\n\\nThis will allow the user to submit a new application.\\n\\nThis action CANNOT be undone!')) {
+        return;
+      }
+
+      try {
+        const res = await fetch('/applications/admin/submission/${submission.id}', {
+          method: 'DELETE'
+        });
+
+        const data = await res.json();
+        
+        if (data.success) {
+          alert('Submission deleted successfully!');
           window.location.href = '/applications/admin';
         } else {
           alert('Error: ' + data.message);

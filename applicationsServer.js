@@ -84,7 +84,11 @@ function registerApplicationRoutes(app) {
         };
       }));
       
-      res.send(generateApplicationsHomepage(req.session.user, formsWithStatus));
+      const guild = global.discordClient.guilds.cache.first();
+      const guildIcon = guild?.iconURL({ size: 256 }) || null;
+      const guildName = guild?.name || "King's Customs";
+      
+      res.send(generateApplicationsHomepage(req.session.user, formsWithStatus, guildIcon, guildName));
     } catch (error) {
       console.error('Error loading applications:', error);
       res.status(500).send('Failed to load applications');
@@ -279,6 +283,25 @@ function registerApplicationRoutes(app) {
     }
   });
 
+  // Delete individual submission
+  app.delete('/applications/admin/submission/:submissionId', requireAdmin, async (req, res) => {
+    try {
+      const submissionId = parseInt(req.params.submissionId);
+      const db = require('./database/applications');
+      
+      await new Promise((resolve, reject) => {
+        db.run('DELETE FROM application_submissions WHERE id = ?', [submissionId], (err) => {
+          err ? reject(err) : resolve();
+        });
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting submission:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   // Delete form
   app.delete('/applications/admin/forms/:formId', requireAdmin, async (req, res) => {
     try {
@@ -437,28 +460,42 @@ async function sendApplicationNotification(formId, submissionId, userId, usernam
   const APPLICATIONS_CHANNEL_ID = '1460375837462237427';
   const channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
   
-  if (!channel) return;
+  if (!channel) {
+    console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found`);
+    return;
+  }
   
   const submission = await getSubmissionById(submissionId);
+  const user = await global.discordClient.users.fetch(userId).catch(() => null);
   
   const embed = new EmbedBuilder()
     .setTitle('📋 New Application Submitted')
     .setColor(0x2E7EFE)
+    .setDescription(`**${form.name}** application has been submitted`)
     .addFields([
-      { name: 'Application', value: form.name, inline: true },
-      { name: 'Applicant', value: `${username} (<@${userId}>)`, inline: true },
-      { name: 'User ID', value: userId, inline: true }
+      { name: '👤 Applicant', value: user ? `${user.tag}` : username, inline: true },
+      { name: '🆔 User ID', value: `<@${userId}>`, inline: true },
+      { name: '📅 Submitted', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
     ])
     .setTimestamp();
   
-  if (submission.roblox_username) {
-    embed.addFields({ name: 'Roblox Username', value: submission.roblox_username, inline: true });
+  if (user && user.avatarURL()) {
+    embed.setThumbnail(user.avatarURL());
   }
   
-  embed.setFooter({ text: `Submission ID: ${submissionId}` });
+  if (submission.roblox_username) {
+    embed.addFields({ 
+      name: '🎮 Roblox Account', 
+      value: `${submission.roblox_username} (ID: ${submission.roblox_id || 'Unknown'})`, 
+      inline: false 
+    });
+  }
+  
+  embed.setFooter({ text: `Submission ID: ${submissionId} | Responses NOT included for privacy` });
   
   const mgmtRole = '1411100904949682236';
   await channel.send({ content: `<@&${mgmtRole}>`, embeds: [embed] });
+  console.log(`✅ Sent application submission notification to Discord`);
 }
 
 async function sendReviewNotification(submissionId, status, customStatus, reviewerId) {
@@ -471,20 +508,41 @@ async function sendReviewNotification(submissionId, status, customStatus, review
   
   if (channel) {
     const statusText = status === 'custom' ? customStatus : status.toUpperCase();
+    const statusEmoji = status === 'accepted' ? '✅' : status === 'denied' ? '❌' : '📌';
     const color = status === 'accepted' ? 0x00FF88 : status === 'denied' ? 0xFF4757 : 0xFFA500;
     
+    const user = await global.discordClient.users.fetch(submission.user_id).catch(() => null);
+    const reviewer = await global.discordClient.users.fetch(reviewerId).catch(() => null);
+    
     const embed = new EmbedBuilder()
-      .setTitle(`📋 Application ${statusText}`)
+      .setTitle(`${statusEmoji} Application ${statusText}`)
       .setColor(color)
+      .setDescription(`**${form.name}** application has been reviewed`)
       .addFields([
-        { name: 'Application', value: form.name, inline: true },
-        { name: 'Applicant', value: `<@${submission.user_id}>`, inline: true },
-        { name: 'Status', value: statusText, inline: true },
-        { name: 'Reviewed By', value: `<@${reviewerId}>`, inline: true }
+        { name: '👤 Applicant', value: user ? user.tag : `<@${submission.user_id}>`, inline: true },
+        { name: '🆔 User ID', value: submission.user_id, inline: true },
+        { name: '📊 Decision', value: statusText, inline: true },
+        { name: '👮 Reviewed By', value: reviewer ? reviewer.tag : `<@${reviewerId}>`, inline: true },
+        { name: '📅 Reviewed At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: false }
       ])
       .setTimestamp();
     
+    if (user && user.avatarURL()) {
+      embed.setThumbnail(user.avatarURL());
+    }
+    
+    if (submission.roblox_username) {
+      embed.addFields({ 
+        name: '🎮 Roblox Account', 
+        value: `${submission.roblox_username}`, 
+        inline: true 
+      });
+    }
+    
+    embed.setFooter({ text: `Submission ID: ${submissionId} | Responses NOT included` });
+    
     await channel.send({ embeds: [embed] });
+    console.log(`✅ Sent application review notification to Discord (${status})`);
   }
   
   // DM user

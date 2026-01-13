@@ -1,5 +1,5 @@
 // Applications Homepage View
-module.exports = function(user, forms) {
+module.exports = function(user, forms, guildIcon, guildName) {
   const statusConfig = {
     not_started: { icon: '📝', text: 'Not Started', color: '#7889b5' },
     in_progress: { icon: '⏳', text: 'In Progress', color: '#FFA500' },
@@ -15,28 +15,46 @@ module.exports = function(user, forms) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Applications - King's Customs</title>
+  <title>Applications - ${escapeHtml(guildName)}</title>
   <link rel="stylesheet" href="/css/appeal.css">
   <link rel="stylesheet" href="/css/applications.css">
 </head>
 <body>
-  <div class="container">
-    <div class="applications-header">
-      <h1>📋 Applications</h1>
-      <p class="subtitle">Welcome, ${user.username}</p>
-      <div class="header-actions">
-        ${checkIfAdmin(user.id) ? `
-          <a href="/applications/admin" class="admin-link">⚙️ Admin Dashboard</a>
-          <a href="/applications/admin/builder" class="create-form-link">➕ Create New Form</a>
-        ` : ''}
-        <a href="/logout" class="logout-link">Logout</a>
+  <div class="container applications-hub">
+    ${guildIcon ? `
+      <div class="guild-icon-container">
+        <img src="${guildIcon}" alt="${escapeHtml(guildName)}" class="guild-icon-large">
       </div>
+    ` : ''}
+    
+    <div class="hub-header">
+      <h1 class="hub-title">Applications</h1>
+      <p class="hub-welcome">Welcome, <strong>${escapeHtml(user.username)}</strong></p>
+    </div>
+    
+    <div class="hub-actions">
+      ${checkIfAdmin(user.id) ? `
+        <a href="/applications/admin" class="hub-btn admin-btn">
+          <span class="btn-icon">⚙️</span>
+          Admin Dashboard
+        </a>
+        <a href="/applications/admin/builder" class="hub-btn create-btn">
+          <span class="btn-icon">➕</span>
+          Create New Form
+        </a>
+      ` : ''}
+      <a href="/logout" class="hub-btn logout-btn">
+        <span class="btn-icon">🚪</span>
+        Logout
+      </a>
     </div>
 
-    <div class="applications-grid">
+    <div class="applications-grid" data-count="${forms.length}">
       ${forms.length === 0 ? `
         <div class="no-applications">
-          <p>No applications are currently available.</p>
+          <div class="empty-icon">📭</div>
+          <h3>No Applications Available</h3>
+          <p>There are no application forms at this time.</p>
         </div>
       ` : forms.map(form => {
         const status = statusConfig[form.userStatus] || statusConfig.not_started;
