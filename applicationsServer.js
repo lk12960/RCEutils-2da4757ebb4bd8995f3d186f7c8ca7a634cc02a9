@@ -40,18 +40,36 @@ function registerApplicationRoutes(app) {
     try {
       const userId = req.session.user.id;
       const guild = global.discordClient.guilds.cache.first();
+      
+      console.log(`🔍 Admin check for user ${userId}`);
+      console.log(`   Guild found: ${!!guild}`);
+      
       if (!guild) return res.status(500).send('Guild not found');
       
-      const member = await guild.members.fetch(userId).catch(() => null);
+      const member = await guild.members.fetch(userId).catch((err) => {
+        console.error(`   Failed to fetch member: ${err.message}`);
+        return null;
+      });
+      
+      console.log(`   Member found: ${!!member}`);
+      
       if (!member) return res.status(403).send('Not a server member');
       
       // Check for management roles (hardcoded)
       const mgmt1 = '1411100904949682236'; // Management role 1
       const mgmt2 = '1419399437997834301'; // Management role 2
       
-      const hasPermission = member.roles.cache.has(mgmt1) || member.roles.cache.has(mgmt2);
+      const hasMgmt1 = member.roles.cache.has(mgmt1);
+      const hasMgmt2 = member.roles.cache.has(mgmt2);
+      
+      console.log(`   Has management role 1: ${hasMgmt1}`);
+      console.log(`   Has management role 2: ${hasMgmt2}`);
+      console.log(`   User roles:`, Array.from(member.roles.cache.keys()));
+      
+      const hasPermission = hasMgmt1 || hasMgmt2;
       
       if (!hasPermission) {
+        console.log(`   ❌ Permission denied`);
         return res.status(403).send(`
 <!DOCTYPE html>
 <html><head><title>Access Denied</title><link rel="stylesheet" href="/css/appeal.css"></head>
