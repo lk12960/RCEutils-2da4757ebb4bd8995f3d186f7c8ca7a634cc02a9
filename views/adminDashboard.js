@@ -79,6 +79,7 @@ module.exports = function(user, forms) {
               <div class="form-card-header">
                 <h3>${escapeHtml(form.name)}</h3>
                 <div class="form-status-badges">
+                  ${!form.isPublished ? `<span class="badge unpublished">🔒 Unpublished</span>` : ''}
                   ${form.pendingReview > 0 ? `<span class="badge pending">⏳ ${form.pendingReview} Pending</span>` : ''}
                   ${form.acceptedCount > 0 ? `<span class="badge accepted">✅ ${form.acceptedCount}</span>` : ''}
                   ${form.deniedCount > 0 ? `<span class="badge denied">❌ ${form.deniedCount}</span>` : ''}
@@ -125,6 +126,15 @@ module.exports = function(user, forms) {
                   <button onclick="exportForm(${form.id}, 'csv')" class="btn-tertiary">
                     📊 Export CSV
                   </button>
+                  ${form.isPublished ? `
+                    <button onclick="togglePublish(${form.id}, false)" class="btn-tertiary btn-unpublish">
+                      🔒 Unpublish
+                    </button>
+                  ` : `
+                    <button onclick="togglePublish(${form.id}, true)" class="btn-tertiary btn-publish">
+                      🌐 Publish
+                    </button>
+                  `}
                   <button onclick="deleteForm(${form.id}, '${escapeHtml(form.name)}')" class="btn-danger">
                     🗑️ Delete
                   </button>
@@ -167,6 +177,30 @@ module.exports = function(user, forms) {
             }
           }).catch(err => {
             alert('Error deleting form');
+          });
+        }
+      }
+      
+      function togglePublish(formId, publish) {
+        const action = publish ? 'publish' : 'unpublish';
+        const message = publish 
+          ? 'This will make the form visible to all users on the public dashboard.'
+          : 'This will hide the form from the public dashboard. Existing submissions will be preserved.';
+        
+        if (confirm('Are you sure you want to ' + action + ' this form?\\n\\n' + message)) {
+          fetch('/applications/admin/forms/' + formId + '/toggle-publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ publish: publish })
+          }).then(res => res.json()).then(data => {
+            if (data.success) {
+              alert('Form ' + (publish ? 'published' : 'unpublished') + ' successfully!');
+              window.location.reload();
+            } else {
+              alert('Error: ' + data.message);
+            }
+          }).catch(err => {
+            alert('Error toggling publish status');
           });
         }
       }

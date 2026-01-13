@@ -10,7 +10,8 @@ const {
   reviewSubmission,
   getSubmissionById,
   checkEligibility,
-  logAccess
+  logAccess,
+  toggleFormPublishStatus
 } = require('./utils/applicationsManager');
 
 function registerApplicationRoutes(app) {
@@ -102,7 +103,7 @@ function registerApplicationRoutes(app) {
   // Admin dashboard
   app.get('/applications/admin', requireAdmin, async (req, res) => {
     try {
-      const forms = await getAllForms();
+      const forms = await getAllForms(true); // Include unpublished forms for admin
       const formsWithCounts = await Promise.all(forms.map(async (form) => {
         const submissions = await getFormSubmissions(form.id);
         const pending = submissions.filter(s => s.status === 'submitted').length;
@@ -113,7 +114,8 @@ function registerApplicationRoutes(app) {
           totalSubmissions: submissions.length,
           pendingReview: pending,
           acceptedCount: accepted,
-          deniedCount: denied
+          deniedCount: denied,
+          isPublished: form.status === 'active'
         };
       }));
       
@@ -121,6 +123,20 @@ function registerApplicationRoutes(app) {
     } catch (error) {
       console.error('Error loading admin dashboard:', error);
       res.status(500).send('Failed to load dashboard');
+    }
+  });
+
+  // Toggle form publish status
+  app.post('/applications/admin/forms/:formId/toggle-publish', requireAdmin, async (req, res) => {
+    try {
+      const formId = parseInt(req.params.formId);
+      const { publish } = req.body;
+      
+      const result = await toggleFormPublishStatus(formId, publish);
+      res.json({ success: true, newStatus: result.newStatus });
+    } catch (error) {
+      console.error('Error toggling form publish status:', error);
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 
@@ -417,17 +433,31 @@ function registerApplicationRoutes(app) {
       
       // If submitting, fetch Roblox data and send Discord notification
       if (isSubmitting) {
-        // Fetch Roblox data
+        // Fetch Roblox data using Bloxlink API
         try {
-          const { getBloxlinkData } = require('./utils/bloxlinkApi');
+          const axios = require('axios');
+          const BLOXLINK_API_KEY = process.env.BLOXLINK_API_KEY;
           const guild = global.discordClient.guilds.cache.first();
-          const robloxData = await getBloxlinkData(userId, guild.id).catch(() => null);
           
-          if (robloxData && robloxData.robloxID) {
-            await updateSubmissionRoblox(submissionId, robloxData.robloxUsername, robloxData.robloxID);
+          if (BLOXLINK_API_KEY && guild) {
+            const url = `https://api.blox.link/v4/public/guilds/${guild.id}/discord-to-roblox/${userId}`;
+            const res = await axios.get(url, {
+              headers: { Authorization: BLOXLINK_API_KEY },
+              validateStatus: () => true
+            });
+            
+            if (res.status === 200 && res.data?.robloxID) {
+              const robloxId = res.data.robloxID;
+              // Get Roblox username from ID
+              const userRes = await axios.get(`https://users.roblox.com/v1/users/${robloxId}`);
+              if (userRes.status === 200 && userRes.data?.name) {
+                await updateSubmissionRoblox(submissionId, userRes.data.name, robloxId);
+                console.log(`✅ Fetched Roblox data: ${userRes.data.name} (${robloxId})`);
+              }
+            }
           }
         } catch (err) {
-          console.error('Failed to fetch Roblox data:', err);
+          console.error('Failed to fetch Roblox data:', err.message);
         }
         
         // Send Discord notification
@@ -458,7 +488,17 @@ async function sendApplicationNotification(formId, submissionId, userId, usernam
   const form = await getFormById(formId);
   const guild = global.discordClient.guilds.cache.first();
   const APPLICATIONS_CHANNEL_ID = '1460375837462237427';
-  const channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+  let channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+  
+  // Try to fetch if not in cache
+  if (!channel) {
+    try {
+      channel = await guild.channels.fetch(APPLICATIONS_CHANNEL_ID);
+    } catch (err) {
+      console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found:`, err.message);
+      return;
+    }
+  }
   
   if (!channel) {
     console.error(`❌ Applications channel ${APPLICATIONS_CHANNEL_ID} not found`);
@@ -504,7 +544,16 @@ async function sendReviewNotification(submissionId, status, customStatus, review
   const form = await getFormById(submission.form_id);
   const guild = global.discordClient.guilds.cache.first();
   const APPLICATIONS_CHANNEL_ID = '1460375837462237427';
-  const channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+  let channel = guild.channels.cache.get(APPLICATIONS_CHANNEL_ID);
+  
+  // Try to fetch if not in cache
+  if (!channel) {
+    try {
+      channel = await guild.channels.fetch(APPLICATIONS_CHANNEL_ID);
+    } catch (err) {
+      console.error(`❌ Applications channel fetch failed:`, err.message);
+    }
+  }
   
   if (channel) {
     const statusText = status === 'custom' ? customStatus : status.toUpperCase();

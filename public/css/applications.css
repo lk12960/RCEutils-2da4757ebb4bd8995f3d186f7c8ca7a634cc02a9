@@ -1481,6 +1481,16 @@
 }
 
 /* Empty state styling */
+.no-applications {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 20px;
+  width: 100%;
+}
+
 .no-applications .empty-icon {
   font-size: 5rem;
   margin-bottom: 20px;
@@ -1496,6 +1506,52 @@
 .no-applications p {
   color: var(--text-secondary);
   font-size: 1.1rem;
+}
+
+/* Centered server logo for homepage */
+.server-logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 40px auto 20px;
+}
+
+.server-logo {
+  max-width: 200px;
+  max-height: 200px;
+  object-fit: contain;
+}
+
+/* Unpublished form badge */
+.badge.unpublished {
+  background: rgba(255, 165, 0, 0.2);
+  color: #FFA500;
+}
+
+.btn-publish {
+  flex: 1;
+  background: linear-gradient(135deg, #00FF88, #00cc6a);
+  color: var(--bg-dark);
+  border: none;
+  font-size: 0.9rem;
+}
+
+.btn-publish:hover {
+  box-shadow: 0 4px 16px rgba(0, 255, 136, 0.4);
+  transform: translateY(-2px);
+}
+
+.btn-unpublish {
+  flex: 1;
+  background: transparent;
+  color: #FFA500;
+  border: 1px solid #FFA500;
+  font-size: 0.9rem;
+}
+
+.btn-unpublish:hover {
+  background: #FFA500;
+  color: var(--bg-dark);
 }
 
 @keyframes fadeIn {

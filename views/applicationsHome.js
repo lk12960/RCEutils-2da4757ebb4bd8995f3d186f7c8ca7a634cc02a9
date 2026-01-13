@@ -9,6 +9,9 @@ module.exports = function(user, forms, guildIcon, guildName) {
     custom: { icon: '📌', text: 'Custom', color: '#FFA500' }
   };
 
+  // Use custom logo URL
+  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b510e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1212&height=808';
+
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -21,11 +24,9 @@ module.exports = function(user, forms, guildIcon, guildName) {
 </head>
 <body>
   <div class="container applications-hub">
-    ${guildIcon ? `
-      <div class="guild-icon-container">
-        <img src="${guildIcon}" alt="${escapeHtml(guildName)}" class="guild-icon-large">
-      </div>
-    ` : ''}
+    <div class="server-logo-container">
+      <img src="${serverLogoUrl}" alt="${escapeHtml(guildName)}" class="server-logo">
+    </div>
     
     <div class="hub-header">
       <h1 class="hub-title">Applications</h1>

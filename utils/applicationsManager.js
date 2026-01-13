@@ -2,14 +2,35 @@
 const db = require('../database/applications');
 
 /**
- * Get all active application forms
+ * Get all active application forms (public view - only published)
  */
-function getAllForms() {
+function getAllForms(includeUnpublished = false) {
   return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT * FROM application_forms WHERE status = 'active' ORDER BY created_at DESC`,
-      [],
-      (err, rows) => err ? reject(err) : resolve(rows || [])
+    let query;
+    if (includeUnpublished) {
+      // Admin view - show active and unpublished forms
+      query = `SELECT * FROM application_forms WHERE status IN ('active', 'unpublished') ORDER BY created_at DESC`;
+    } else {
+      // Public view - only show active/published forms
+      query = `SELECT * FROM application_forms WHERE status = 'active' ORDER BY created_at DESC`;
+    }
+    db.all(query, [], (err, rows) => err ? reject(err) : resolve(rows || []));
+  });
+}
+
+/**
+ * Toggle form publish status
+ */
+function toggleFormPublishStatus(formId, publish) {
+  return new Promise((resolve, reject) => {
+    const newStatus = publish ? 'active' : 'unpublished';
+    const now = new Date().toISOString();
+    db.run(
+      `UPDATE application_forms SET status = ?, updated_at = ? WHERE id = ?`,
+      [newStatus, now, formId],
+      function(err) {
+        err ? reject(err) : resolve({ success: true, newStatus });
+      }
     );
   });
 }
@@ -264,5 +285,6 @@ module.exports = {
   getSubmissionById,
   checkEligibility,
   logAccess,
-  getStatistics
+  getStatistics,
+  toggleFormPublishStatus
 };
