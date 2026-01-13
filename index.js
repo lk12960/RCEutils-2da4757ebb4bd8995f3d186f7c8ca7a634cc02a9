@@ -151,9 +151,98 @@ process.on('uncaughtException', (e) => console.error('UncaughtException:', e));
 app.use(express.json({ limit: '64kb' }));
 app.use(express.urlencoded({ extended: false, limit: '64kb' }));
 
-// Status root remains simple
+// Styled homepage with portal links
 app.get('/', (req, res) => {
-  res.send('King\'s Customs bot is online');
+  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
+  
+  res.send(`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>King's Customs - Portal</title>
+  <link rel="stylesheet" href="/css/home.css">
+  <link rel="icon" href="${serverLogoUrl}" type="image/png">
+</head>
+<body>
+  <!-- Animated background particles -->
+  <div class="particles">
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+    <div class="particle"></div>
+  </div>
+
+  <div class="home-container">
+    <!-- Logo and title -->
+    <div class="logo-section">
+      <img src="${serverLogoUrl}" alt="King's Customs" class="server-logo">
+      <h1 class="site-title">King's Customs</h1>
+      <p class="site-subtitle">Select a portal to continue</p>
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        All Systems Online
+      </div>
+    </div>
+
+    <!-- Portal cards -->
+    <div class="portal-grid">
+      <!-- Ban Appeals -->
+      <a href="/appeal" class="portal-card appeals">
+        <div class="portal-icon">⚖️</div>
+        <h2 class="portal-title">Ban Appeals</h2>
+        <p class="portal-description">
+          Were you banned? Submit an appeal to request a review of your ban and potentially get unbanned.
+        </p>
+        <div class="portal-arrow">
+          Enter Portal <span>→</span>
+        </div>
+        <div class="portal-glow"></div>
+      </a>
+
+      <!-- Applications -->
+      <a href="/applications" class="portal-card applications">
+        <div class="portal-icon">📝</div>
+        <h2 class="portal-title">Applications</h2>
+        <p class="portal-description">
+          Looking to join our team? Browse available positions and submit your application.
+        </p>
+        <div class="portal-arrow">
+          Enter Portal <span>→</span>
+        </div>
+        <div class="portal-glow"></div>
+      </a>
+    </div>
+
+    <!-- Footer -->
+    <div class="home-footer">
+      <p>© ${new Date().getFullYear()} King's Customs. All rights reserved.</p>
+    </div>
+  </div>
+
+  <script>
+    // Add mouse tracking glow effect
+    document.querySelectorAll('.portal-card').forEach(card => {
+      card.addEventListener('mousemove', (e) => {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        card.style.setProperty('--mouse-x', x + 'px');
+        card.style.setProperty('--mouse-y', y + 'px');
+      });
+    });
+  </script>
+</body>
+</html>
+  `);
 });
 
 // Start server

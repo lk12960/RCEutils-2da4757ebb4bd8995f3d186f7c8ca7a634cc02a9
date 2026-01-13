@@ -10,7 +10,7 @@ module.exports = function(user, forms, guildIcon, guildName) {
   };
 
   // Use custom logo URL
-  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b510e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1212&height=808';
+  const serverLogoUrl = 'https://media.discordapp.net/attachments/1411101283389149294/1459270065185620233/WhiteOutlined.png?ex=69669f27&is=69654da7&hm=e5d3c0edffbcf4b2640825bea6492b51e09eff93d0da515045925fed94368fe3&=&format=webp&quality=lossless&width=1098&height=732';
 
   return `
 <!DOCTYPE html>
@@ -52,10 +52,12 @@ module.exports = function(user, forms, guildIcon, guildName) {
 
     <div class="applications-grid" data-count="${forms.length}">
       ${forms.length === 0 ? `
-        <div class="no-applications">
-          <div class="empty-icon">📭</div>
-          <h3>No Applications Available</h3>
-          <p>There are no application forms at this time.</p>
+        <div class="no-applications-wrapper">
+          <div class="no-applications">
+            <div class="empty-icon">📭</div>
+            <h3>No Applications Available</h3>
+            <p>There are no application forms at this time.</p>
+          </div>
         </div>
       ` : forms.map(form => {
         const status = statusConfig[form.userStatus] || statusConfig.not_started;
@@ -64,18 +66,18 @@ module.exports = function(user, forms, guildIcon, guildName) {
         
         return `
           <div class="application-card">
-            <div class="card-header">
-              <h2>${escapeHtml(form.name)}</h2>
-              <div class="status-badge" style="background: ${status.color}">
-                ${status.icon} ${escapeHtml(displayStatus)}
-              </div>
+            <div class="status-badge-top" style="background: ${status.color}">
+              ${status.icon} ${escapeHtml(displayStatus)}
             </div>
-            
-            ${form.description ? `
-              <p class="card-description">${escapeHtml(form.description)}</p>
-            ` : ''}
-            
-            ${form.requirements ? renderRequirements(JSON.parse(form.requirements)) : ''}
+            <div class="card-content">
+              <h2 class="card-title">${escapeHtml(form.name)}</h2>
+              
+              ${form.description ? `
+                <p class="card-description">${escapeHtml(form.description)}</p>
+              ` : ''}
+              
+              ${form.requirements ? renderRequirements(JSON.parse(form.requirements)) : ''}
+            </div>
             
             <div class="card-actions">
               ${canApply ? `
