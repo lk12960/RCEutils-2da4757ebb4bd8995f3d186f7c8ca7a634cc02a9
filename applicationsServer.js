@@ -46,7 +46,7 @@ function registerApplicationRoutes(app) {
       
       if (!guild) return res.status(500).send('Guild not found');
       
-      const member = await guild.members.fetch(userId).catch((err) => {
+      const member = await guild.members.fetch({ user: userId, force: true }).catch((err) => {
         console.error(`   Failed to fetch member: ${err.message}`);
         return null;
       });
