@@ -47,10 +47,72 @@ const log = {
 
 /**
  * Generate a hash for a command to detect changes
+ * Normalizes the command by removing fields that Discord adds/modifies
  */
 function hashCommand(commandJSON) {
-  const normalized = JSON.stringify(commandJSON, Object.keys(commandJSON).sort());
+  // Create a clean copy without Discord-added fields
+  const cleanCmd = cleanCommandForComparison(commandJSON);
+  const normalized = JSON.stringify(cleanCmd, Object.keys(cleanCmd).sort());
   return crypto.createHash('sha256').update(normalized).digest('hex');
+}
+
+/**
+ * Clean a command object for comparison by removing Discord-specific fields
+ * and normalizing the structure
+ */
+function cleanCommandForComparison(cmd) {
+  const clean = {
+    name: cmd.name,
+    description: cmd.description,
+  };
+  
+  // Only include fields that matter for comparison
+  if (cmd.type !== undefined && cmd.type !== 1) clean.type = cmd.type;
+  if (cmd.default_member_permissions) clean.default_member_permissions = cmd.default_member_permissions;
+  if (cmd.dm_permission === false) clean.dm_permission = cmd.dm_permission;
+  if (cmd.nsfw) clean.nsfw = cmd.nsfw;
+  
+  // Clean options recursively
+  if (cmd.options && cmd.options.length > 0) {
+    clean.options = cmd.options.map(opt => cleanOptionForComparison(opt));
+  }
+  
+  return clean;
+}
+
+/**
+ * Clean an option object for comparison
+ */
+function cleanOptionForComparison(opt) {
+  const clean = {
+    name: opt.name,
+    description: opt.description,
+    type: opt.type,
+  };
+  
+  if (opt.required) clean.required = opt.required;
+  if (opt.autocomplete) clean.autocomplete = opt.autocomplete;
+  if (opt.min_value !== undefined) clean.min_value = opt.min_value;
+  if (opt.max_value !== undefined) clean.max_value = opt.max_value;
+  if (opt.min_length !== undefined) clean.min_length = opt.min_length;
+  if (opt.max_length !== undefined) clean.max_length = opt.max_length;
+  
+  // Handle choices
+  if (opt.choices && opt.choices.length > 0) {
+    clean.choices = opt.choices.map(c => ({ name: c.name, value: c.value }));
+  }
+  
+  // Handle channel_types
+  if (opt.channel_types && opt.channel_types.length > 0) {
+    clean.channel_types = [...opt.channel_types].sort();
+  }
+  
+  // Handle nested options (for subcommands/groups)
+  if (opt.options && opt.options.length > 0) {
+    clean.options = opt.options.map(o => cleanOptionForComparison(o));
+  }
+  
+  return clean;
 }
 
 /**
@@ -220,6 +282,7 @@ async function fetchExistingCommands(rest, clientId, guildId = null) {
 
 /**
  * Compare commands and determine actions needed
+ * Now compares directly against remote command structure instead of relying on cache
  */
 function determineActions(localCommands, remoteCommands, cache, scope) {
   const actions = {
@@ -230,34 +293,38 @@ function determineActions(localCommands, remoteCommands, cache, scope) {
   };
   
   const localNames = new Set(localCommands.map(cmd => cmd.name));
-  const remoteNames = new Set(remoteCommands.keys());
   
   // Check local commands
   for (const cmd of localCommands) {
     const remote = remoteCommands.get(cmd.name);
-    const cachedHash = cache[scope]?.[cmd.name];
     
     if (!remote) {
-      // Command doesn't exist remotely
+      // Command doesn't exist remotely - needs to be created
       actions.create.push(cmd);
-    } else if (cmd._meta.hash !== cachedHash) {
-      // Command changed since last deploy
-      actions.update.push({ ...cmd, id: remote.id });
     } else {
-      // Command unchanged
-      actions.skip.push(cmd);
+      // Compare local command hash with remote command hash
+      const localHash = cmd._meta.hash;
+      const remoteHash = hashCommand(remote); // Hash the actual remote command
+      
+      if (localHash !== remoteHash) {
+        // Command has changed - needs update
+        log.debug(`Command "${cmd.name}" changed: local=${localHash.substring(0,8)} remote=${remoteHash.substring(0,8)}`);
+        actions.update.push({ ...cmd, id: remote.id });
+      } else {
+        // Command is identical - skip
+        actions.skip.push(cmd);
+      }
     }
   }
   
   // Check for deleted commands (exist remotely but not locally)
   for (const [name, remote] of remoteCommands.entries()) {
     if (!localNames.has(name)) {
-      // Only delete if it was in our cache (meaning we deployed it)
-      if (cache[scope]?.[name]) {
-        actions.delete.push({ name, id: remote.id });
-      } else {
-        log.debug(`Remote command "${name}" not in local files, but also not in cache - skipping deletion`);
-      }
+      // Command exists remotely but not locally - delete it
+      // Note: This will delete ALL commands not in local files, not just ones we deployed
+      // This is usually the desired behavior to keep Discord in sync with the codebase
+      actions.delete.push({ name, id: remote.id });
+      log.debug(`Command "${name}" exists remotely but not locally - marking for deletion`);
     }
   }
   
@@ -466,7 +533,14 @@ async function deploy() {
       // Determine actions
       const guildActions = determineActions(guildCommands, existingGuild, cache, 'guild');
       
-      log.info(`Actions: ${guildActions.create.length} create, ${guildActions.update.length} update, ${guildActions.delete.length} delete, ${guildActions.skip.length} skip`);
+      // Show summary
+      const hasChanges = guildActions.create.length > 0 || guildActions.update.length > 0 || guildActions.delete.length > 0;
+      
+      if (!hasChanges) {
+        log.success(`All ${guildActions.skip.length} guild commands are up to date - no changes needed!`);
+      } else {
+        log.info(`Actions: ${guildActions.create.length} create, ${guildActions.update.length} update, ${guildActions.delete.length} delete, ${guildActions.skip.length} skip`);
+      }
       
       // Execute actions
       const { stats: guildStats, newCache: guildCache } = await executeActions(
@@ -503,7 +577,14 @@ async function deploy() {
     // Determine actions
     const globalActions = determineActions(globalCommands, existingGlobal, cache, 'global');
     
-    log.info(`Actions: ${globalActions.create.length} create, ${globalActions.update.length} update, ${globalActions.delete.length} delete, ${globalActions.skip.length} skip`);
+    // Show summary
+    const hasGlobalChanges = globalActions.create.length > 0 || globalActions.update.length > 0 || globalActions.delete.length > 0;
+    
+    if (!hasGlobalChanges) {
+      log.success(`All ${globalActions.skip.length} global commands are up to date - no changes needed!`);
+    } else {
+      log.info(`Actions: ${globalActions.create.length} create, ${globalActions.update.length} update, ${globalActions.delete.length} delete, ${globalActions.skip.length} skip`);
+    }
     
     // Execute actions
     const { stats: globalStats, newCache: globalCache } = await executeActions(

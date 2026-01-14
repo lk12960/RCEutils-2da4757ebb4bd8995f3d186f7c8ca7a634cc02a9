@@ -702,7 +702,7 @@ module.exports = function(user, staffData, filters = {}) {
       const collapsedCategories = JSON.parse(localStorage.getItem('collapsedStaffCategories') || '[]');
       
       collapsedCategories.forEach(categoryName => {
-        const section = document.querySelector(`.category-section[data-category="${categoryName}"]`);
+        const section = document.querySelector('.category-section[data-category="' + categoryName + '"]');
         if (section) {
           const header = section.querySelector('.category-header');
           const gridWrapper = section.querySelector('.staff-grid-wrapper');
