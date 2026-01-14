@@ -217,7 +217,7 @@ function registerRoutes() {
       
       <div class="login-content">
         <p class="login-description">
-          You must log in with your Discord account to view or submit ban appeals.
+          You must log in with your Discord account to view or submit ban appeals and applications.
         </p>
         
         <a href="${authUrl}" class="discord-login-button">
@@ -596,6 +596,7 @@ function registerRoutes() {
   
   /**
    * GET /admin/staff - Staff management dashboard
+   * Optimized with parallel LOA fetching and caching
    */
   app.get('/admin/staff', requireAdminRole, async (req, res) => {
     try {
@@ -603,7 +604,7 @@ function registerRoutes() {
       
       const staffMembers = await staffManager.getAllStaffMembers(global.discordClient);
       
-      // Calculate stats
+      // Calculate initial stats
       const stats = {
         total: staffMembers.length,
         active: staffMembers.filter(s => s.status === 'active').length,
@@ -611,14 +612,22 @@ function registerRoutes() {
         onLOA: 0
       };
       
-      // Check LOA status for each member
-      for (const member of staffMembers) {
-        const loa = await getActiveLOA(member.id).catch(() => null);
+      // Fetch all LOA statuses in PARALLEL instead of one by one (major speedup)
+      const loaPromises = staffMembers.map(member => 
+        getActiveLOA(member.id).catch(() => null)
+      );
+      const loaResults = await Promise.all(loaPromises);
+      
+      // Apply LOA statuses
+      loaResults.forEach((loa, index) => {
         if (loa) {
           stats.onLOA++;
-          member.status = 'loa';
+          staffMembers[index].status = 'loa';
         }
-      }
+      });
+      
+      // Adjust active count after LOA check
+      stats.active = staffMembers.filter(s => s.status === 'active').length;
       
       res.send(generateStaffDashboard(req.session.user, {
         staffMembers,
@@ -633,22 +642,25 @@ function registerRoutes() {
   
   /**
    * GET /admin/staff/:id - Staff profile page
+   * Optimized with parallel data fetching
    */
   app.get('/admin/staff/:id', requireAdminRole, async (req, res) => {
     try {
       const { renderStaffProfile } = require('./views/staffProfile');
       const userId = req.params.id;
       
-      const staffMember = await staffManager.getStaffMember(global.discordClient, userId);
+      // Fetch staff member and all additional data in PARALLEL
+      const [staffMember, infractions, notes, loa, allStaff] = await Promise.all([
+        staffManager.getStaffMember(global.discordClient, userId),
+        getInfractionsByUserId(userId).catch(() => []),
+        getUserNotes(userId).catch(() => []),
+        getActiveLOA(userId).catch(() => null),
+        staffManager.getAllStaffMembers(global.discordClient)
+      ]);
+      
       if (!staffMember) {
         return res.status(404).send(generateErrorPage('Not Found', 'Staff member not found.'));
       }
-      
-      // Get additional data
-      const infractions = await getInfractionsByUserId(userId).catch(() => []);
-      const notes = await getUserNotes(userId).catch(() => []);
-      const loa = await getActiveLOA(userId).catch(() => null);
-      const allStaff = await staffManager.getAllStaffMembers(global.discordClient);
       
       res.send(renderStaffProfile(req.session.user, staffMember, {
         infractions,
@@ -763,7 +775,7 @@ function registerRoutes() {
           
           // Create embed matching the slash command EXACTLY
           const embed = new EmbedBuilder()
-            .setColor('#e566e2')
+            .setColor('#FF4757')
             .setAuthor({ name: user ? user.tag : req.params.id, iconURL: user?.displayAvatarURL() })
             .setTitle('Staff Punishment')
             .addFields(

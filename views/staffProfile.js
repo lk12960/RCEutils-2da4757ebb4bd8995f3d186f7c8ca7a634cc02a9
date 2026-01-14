@@ -563,16 +563,22 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     async function promoteStaff() {
       const reason = document.getElementById('promoteReason').value;
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/promote', 'POST', { reason });
-      if (result.success) { alert('Staff member promoted!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('promoteModal');
+        alert('Staff member promoted!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function demoteStaff() {
       const reason = document.getElementById('demoteReason').value;
       if (!reason) { alert('Reason is required for demotion'); return; }
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/demote', 'POST', { reason });
-      if (result.success) { alert('Staff member demoted!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('demoteModal');
+        alert('Staff member demoted!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function infractStaff() {
@@ -581,8 +587,11 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const notes = document.getElementById('infractNotes').value;
       if (!reason) { alert('Reason is required'); return; }
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/infract', 'POST', { type, reason, notes });
-      if (result.success) { alert('Infraction issued!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('infractModal');
+        alert('Infraction issued!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function suspendStaff() {
@@ -590,22 +599,30 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const reason = document.getElementById('suspendReason').value;
       if (!duration || !reason) { alert('Duration and reason are required'); return; }
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/suspend', 'POST', { duration, reason });
-      if (result.success) { alert('Staff member suspended!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('suspendModal');
+        alert('Staff member suspended!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function unsuspendStaff() {
       if (!confirm('Are you sure you want to lift this suspension early? The staff member\\'s roles will be restored.')) return;
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/unsuspend', 'POST');
-      if (result.success) { alert('Suspension lifted! Roles have been restored.'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        alert('Suspension lifted! Roles have been restored.'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function wipeInfractions() {
       if (!confirm('Are you sure you want to wipe ALL infractions for this user? This cannot be undone!')) return;
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/wipe-infractions', 'POST');
-      if (result.success) { alert('Infractions wiped!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('wipeModal');
+        alert('Infractions wiped!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
     
     async function revokeInfraction(id) {
@@ -646,8 +663,11 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const duration = document.getElementById('loaDuration').value;
       const reason = document.getElementById('loaReason').value;
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/loa', 'POST', { duration, reason });
-      if (result.success) { alert('LOA started!'); location.reload(); }
-      else alert('Error: ' + result.message);
+      if (result.success) { 
+        hideModal('loaModal');
+        alert('LOA started!'); 
+        location.reload(); 
+      } else alert('Error: ' + result.message);
     }
   </script>
 </body>

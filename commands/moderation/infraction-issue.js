@@ -58,7 +58,7 @@ module.exports = {
     const formattedDate = `<t:${Math.floor(timestamp.getTime() / 1000)}:F>`;
 
     const embed = new EmbedBuilder()
-      .setColor('#e566e2')
+      .setColor('#FF4757')
       .setAuthor({ name: user.tag, iconURL: user.displayAvatarURL() })
       .setTitle('Staff Punishment')
       .addFields(

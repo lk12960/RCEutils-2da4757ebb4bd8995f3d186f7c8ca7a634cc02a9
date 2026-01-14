@@ -226,6 +226,21 @@ db.serialize(() => {
 // STAFF DATA FUNCTIONS
 // ============================================================================
 
+// Cache for staff members to avoid repeated Discord API calls
+let staffMembersCache = {
+  data: null,
+  timestamp: 0,
+  ttl: 30000 // 30 seconds cache TTL
+};
+
+/**
+ * Clear staff cache (call when staff changes are made)
+ */
+function clearStaffCache() {
+  staffMembersCache.data = null;
+  staffMembersCache.timestamp = 0;
+}
+
 /**
  * Determine staff member's highest category based on roles
  * Returns the highest priority category as primary, plus all other categories they belong to
@@ -377,8 +392,16 @@ function updateStaffRecord(userId, updates) {
 
 /**
  * Get all staff members from Discord guild
+ * Uses caching to avoid repeated Discord API calls
  */
-async function getAllStaffMembers(client) {
+async function getAllStaffMembers(client, forceRefresh = false) {
+  // Check cache first (unless force refresh)
+  const now = Date.now();
+  if (!forceRefresh && staffMembersCache.data && (now - staffMembersCache.timestamp) < staffMembersCache.ttl) {
+    console.log(`[Staff] Returning ${staffMembersCache.data.length} cached staff members`);
+    return staffMembersCache.data;
+  }
+  
   const guild = client.guilds.cache.get(TARGET_GUILD_ID);
   if (!guild) throw new Error('Target guild not found');
   
@@ -464,7 +487,11 @@ async function getAllStaffMembers(client) {
     return a.username.localeCompare(b.username);
   });
   
-  console.log(`[Staff] Returning ${staffMembers.length} staff members`);
+  // Update cache
+  staffMembersCache.data = staffMembers;
+  staffMembersCache.timestamp = Date.now();
+  
+  console.log(`[Staff] Returning ${staffMembers.length} staff members (fresh fetch)`);
   return staffMembers;
 }
 
@@ -709,6 +736,9 @@ async function promoteStaffMember(client, userId, promotedBy, reason = null) {
     reason
   }, promotedBy);
   
+  // Clear cache after staff change
+  clearStaffCache();
+  
   return {
     success: true,
     from: currentCategory,
@@ -789,6 +819,9 @@ async function demoteStaffMember(client, userId, demotedBy, reason) {
   // Auto-issue demotion infraction
   const { createInfraction } = require('./infractionManager');
   await createInfraction(userId, demotedBy, 'Notice', `Demotion: ${reason}`, 'Auto-issued on demotion');
+  
+  // Clear cache after staff change
+  clearStaffCache();
   
   return {
     success: true,
@@ -872,6 +905,9 @@ async function suspendStaffMember(client, userId, suspendedBy, reason, durationM
     storedRoles: staffRoleIds // Roles that were removed
   }, suspendedBy);
   
+  // Clear cache after staff change
+  clearStaffCache();
+  
   return {
     success: true,
     suspensionId,
@@ -932,6 +968,9 @@ async function endSuspension(client, suspensionId, endedBy = null) {
     endedEarly,
     endedBy
   }, endedBy || 'SYSTEM');
+  
+  // Clear cache after staff change
+  clearStaffCache();
   
   return { success: true, endedEarly };
 }
@@ -994,6 +1033,7 @@ module.exports = {
   getStaffMember,
   getStaffStats,
   getPromotionHistory,
+  clearStaffCache,
   
   // Audit functions
   logStaffAction,
