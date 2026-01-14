@@ -799,26 +799,64 @@ function registerRoutes() {
         durationMs
       );
       
-      // DM user about suspension
+      // Log to infractions channel and DM user (like infraction system)
       if (global.discordClient) {
+        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || process.env.INFRACTION_CHANNEL_IDS;
+        
         try {
-          const { EmbedBuilder } = require('discord.js');
           const user = await global.discordClient.users.fetch(req.params.id).catch(() => null);
+          const issuer = await global.discordClient.users.fetch(req.session.user.id).catch(() => null);
+          const timestamp = new Date();
+          const dot = '•';
+          const formattedDate = `<t:${Math.floor(timestamp.getTime() / 1000)}:F>`;
+          const endsDate = `<t:${Math.floor(result.endTime.getTime() / 1000)}:F>`;
+          
+          // Create embed matching infraction style
+          const embed = new EmbedBuilder()
+            .setColor('#9B59B6')
+            .setAuthor({ name: user ? user.tag : req.params.id, iconURL: user?.displayAvatarURL() })
+            .setTitle('Staff Suspension')
+            .addFields(
+              { name: 'Case', value: `#S${result.suspensionId}`, inline: true },
+              { name: 'Punishment', value: 'Suspension', inline: true },
+              { name: 'Duration', value: duration, inline: true },
+              { name: 'Date', value: formattedDate, inline: true },
+              { name: 'Ends', value: endsDate, inline: true },
+              { name: 'Reason', value: reason, inline: false }
+            )
+            .setFooter({
+              text: `Issued by: ${issuer ? issuer.tag : req.session.user.username} ${dot} ${timestamp.toUTCString()}`,
+              iconURL: issuer?.displayAvatarURL()
+            });
+          
+          // Log to infractions channel (without button, like infraction system)
+          if (INFRACTIONS_CHANNEL_ID) {
+            const guild = global.discordClient.guilds.cache.get(staffManager.TARGET_GUILD_ID);
+            const infractionsChannel = guild?.channels.cache.get(INFRACTIONS_CHANNEL_ID);
+            if (infractionsChannel?.isTextBased()) {
+              await infractionsChannel.send({ embeds: [embed] });
+            }
+          }
+          
+          // DM user with button (like infraction system)
           if (user) {
-            const embed = new EmbedBuilder()
-              .setTitle('⏸️ Staff Suspension')
-              .setDescription('You have been temporarily suspended from your staff position.')
-              .setColor(0x9B59B6)
-              .addFields([
-                { name: 'Reason', value: reason, inline: false },
-                { name: 'Duration', value: duration, inline: true },
-                { name: 'Ends', value: `<t:${Math.floor(result.endTime.getTime() / 1000)}:F>`, inline: true }
-              ])
-              .setTimestamp();
-            await user.send({ embeds: [embed] });
+            const footerButton = new ButtonBuilder()
+              .setLabel("Sent from: King's Customs")
+              .setStyle(ButtonStyle.Secondary)
+              .setCustomId('source_disabled')
+              .setDisabled(true);
+            
+            const row = new ActionRowBuilder().addComponents(footerButton);
+            
+            try {
+              await user.send({ embeds: [embed], components: [row] });
+            } catch (dmErr) {
+              console.warn(`⚠️ Could not DM ${user.tag} about suspension — they might have DMs disabled.`);
+            }
           }
         } catch (e) {
-          console.error('Failed to DM user about suspension:', e.message);
+          console.error('Failed to log/DM suspension:', e.message);
         }
       }
       
@@ -829,6 +867,98 @@ function registerRoutes() {
     }
   });
   
+  /**
+   * POST /admin/staff/:id/unsuspend - End suspension early and restore roles
+   */
+  app.post('/admin/staff/:id/unsuspend', requireAdminRole, async (req, res) => {
+    try {
+      const userId = req.params.id;
+      
+      // Get active suspension
+      const suspension = await staffManager.getActiveSuspension(userId);
+      if (!suspension) {
+        return res.status(400).json({ success: false, message: 'No active suspension found for this user' });
+      }
+      
+      // End the suspension
+      const result = await staffManager.endSuspension(
+        global.discordClient,
+        suspension.id,
+        req.session.user.id
+      );
+      
+      // Log to infractions channel and DM user
+      if (global.discordClient) {
+        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || process.env.INFRACTION_CHANNEL_IDS;
+        
+        try {
+          const user = await global.discordClient.users.fetch(userId).catch(() => null);
+          const issuer = await global.discordClient.users.fetch(req.session.user.id).catch(() => null);
+          const timestamp = new Date();
+          const dot = '•';
+          
+          // Create embed for unsuspension
+          const embed = new EmbedBuilder()
+            .setColor('#00FF88')
+            .setAuthor({ name: user ? user.tag : userId, iconURL: user?.displayAvatarURL() })
+            .setTitle('Staff Suspension Lifted')
+            .addFields(
+              { name: 'Case', value: `#S${suspension.id}`, inline: true },
+              { name: 'Action', value: 'Unsuspended', inline: true },
+              { name: 'Original Reason', value: suspension.reason || 'No reason', inline: false }
+            )
+            .setFooter({
+              text: `Lifted by: ${issuer ? issuer.tag : req.session.user.username} ${dot} ${timestamp.toUTCString()}`,
+              iconURL: issuer?.displayAvatarURL()
+            });
+          
+          // Log to infractions channel
+          if (INFRACTIONS_CHANNEL_ID) {
+            const guild = global.discordClient.guilds.cache.get(staffManager.TARGET_GUILD_ID);
+            const infractionsChannel = guild?.channels.cache.get(INFRACTIONS_CHANNEL_ID);
+            if (infractionsChannel?.isTextBased()) {
+              await infractionsChannel.send({ embeds: [embed] });
+            }
+          }
+          
+          // DM user
+          if (user) {
+            const footerButton = new ButtonBuilder()
+              .setLabel("Sent from: King's Customs")
+              .setStyle(ButtonStyle.Secondary)
+              .setCustomId('source_disabled')
+              .setDisabled(true);
+            
+            const row = new ActionRowBuilder().addComponents(footerButton);
+            
+            const dmEmbed = new EmbedBuilder()
+              .setColor('#00FF88')
+              .setTitle('✅ Staff Suspension Lifted')
+              .setDescription('Your suspension has been lifted early. Your staff roles have been restored.')
+              .addFields(
+                { name: 'Original Suspension Reason', value: suspension.reason || 'No reason', inline: false }
+              )
+              .setTimestamp();
+            
+            try {
+              await user.send({ embeds: [dmEmbed], components: [row] });
+            } catch (dmErr) {
+              console.warn(`⚠️ Could not DM ${user.tag} about unsuspension — they might have DMs disabled.`);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to log/DM unsuspension:', e.message);
+        }
+      }
+      
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error('Error unsuspending staff:', error);
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
   /**
    * POST /admin/staff/:id/wipe-infractions - Wipe all infractions
    */

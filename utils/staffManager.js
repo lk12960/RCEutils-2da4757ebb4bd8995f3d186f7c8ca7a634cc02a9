@@ -804,6 +804,7 @@ async function demoteStaffMember(client, userId, demotedBy, reason) {
 
 /**
  * Suspend staff member
+ * NOTE: Keeps the general staff role so the user remains visible in staff management
  */
 async function suspendStaffMember(client, userId, suspendedBy, reason, durationMs) {
   const guild = client.guilds.cache.get(TARGET_GUILD_ID);
@@ -812,7 +813,7 @@ async function suspendStaffMember(client, userId, suspendedBy, reason, durationM
   const member = await guild.members.fetch(userId).catch(() => null);
   if (!member) throw new Error('Member not found');
   
-  // Store current staff roles
+  // Store current staff roles (excluding general staff role - we keep that)
   const staffRoleIds = [];
   for (const [key, category] of Object.entries(STAFF_CATEGORIES)) {
     const allRoles = [
@@ -828,12 +829,11 @@ async function suspendStaffMember(client, userId, suspendedBy, reason, durationM
     }
   }
   
-  // Also include general staff role
-  if (member.roles.cache.has(GENERAL_STAFF_ROLE)) {
-    staffRoleIds.push(GENERAL_STAFF_ROLE);
-  }
+  // NOTE: We do NOT remove GENERAL_STAFF_ROLE so user stays visible in staff management
+  // But we still store it so we know what category they were in
+  const hasGeneralStaffRole = member.roles.cache.has(GENERAL_STAFF_ROLE);
   
-  // Remove all staff roles
+  // Remove category/position roles (but keep general staff role)
   for (const roleId of staffRoleIds) {
     await member.roles.remove(roleId).catch(console.error);
   }
@@ -841,12 +841,14 @@ async function suspendStaffMember(client, userId, suspendedBy, reason, durationM
   const now = new Date();
   const endTime = new Date(now.getTime() + durationMs);
   
-  // Record suspension
+  // Record suspension - store ALL roles including general staff for restoration reference
+  const allStoredRoles = hasGeneralStaffRole ? [...staffRoleIds, GENERAL_STAFF_ROLE] : staffRoleIds;
+  
   const suspensionId = await new Promise((resolve, reject) => {
     db.run(
       `INSERT INTO staff_suspensions (user_id, suspended_by, reason, duration_ms, start_time, end_time, stored_roles)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [userId, suspendedBy, reason, durationMs, now.toISOString(), endTime.toISOString(), JSON.stringify(staffRoleIds)],
+      [userId, suspendedBy, reason, durationMs, now.toISOString(), endTime.toISOString(), JSON.stringify(allStoredRoles)],
       function(err) {
         if (err) return reject(err);
         resolve(this.lastID);
@@ -858,22 +860,25 @@ async function suspendStaffMember(client, userId, suspendedBy, reason, durationM
   await updateStaffRecord(userId, {
     status: 'suspended',
     suspended_until: endTime.toISOString(),
-    suspended_roles: JSON.stringify(staffRoleIds)
+    suspended_roles: JSON.stringify(allStoredRoles)
   });
   
   // Log action
   await logStaffAction(userId, 'SUSPENSION', {
+    suspensionId,
     reason,
     duration: durationMs,
     endTime: endTime.toISOString(),
-    storedRoles: staffRoleIds
+    storedRoles: staffRoleIds // Roles that were removed
   }, suspendedBy);
   
   return {
     success: true,
     suspensionId,
     endTime,
-    storedRoles: staffRoleIds
+    storedRoles: staffRoleIds,
+    userId,
+    reason
   };
 }
 

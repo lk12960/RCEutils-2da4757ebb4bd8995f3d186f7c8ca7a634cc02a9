@@ -192,7 +192,10 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
             <button class="action-btn promote" onclick="showPromoteModal()" ${staffMember.status === 'suspended' ? 'disabled' : ''}>⬆️ Promote</button>
             <button class="action-btn demote" onclick="showDemoteModal()" ${staffMember.status === 'suspended' ? 'disabled' : ''}>⬇️ Demote</button>
             <button class="action-btn infract" onclick="showInfractModal()">⚠️ Infract</button>
-            <button class="action-btn suspend" onclick="showSuspendModal()" ${staffMember.status === 'suspended' ? 'disabled' : ''}>⏸️ Suspend</button>
+            ${staffMember.status === 'suspended' 
+              ? '<button class="action-btn promote" onclick="unsuspendStaff()">▶️ Unsuspend</button>'
+              : '<button class="action-btn suspend" onclick="showSuspendModal()">⏸️ Suspend</button>'
+            }
             <button class="action-btn secondary" onclick="showWipeModal()">🗑️ Wipe Infractions</button>
           </div>
         </div>
@@ -588,6 +591,13 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       if (!duration || !reason) { alert('Duration and reason are required'); return; }
       const result = await apiCall('/admin/staff/' + STAFF_ID + '/suspend', 'POST', { duration, reason });
       if (result.success) { alert('Staff member suspended!'); location.reload(); }
+      else alert('Error: ' + result.message);
+    }
+    
+    async function unsuspendStaff() {
+      if (!confirm('Are you sure you want to lift this suspension early? The staff member\\'s roles will be restored.')) return;
+      const result = await apiCall('/admin/staff/' + STAFF_ID + '/unsuspend', 'POST');
+      if (result.success) { alert('Suspension lifted! Roles have been restored.'); location.reload(); }
       else alert('Error: ' + result.message);
     }
     
