@@ -205,8 +205,34 @@ module.exports = function(user, staffData, filters = {}) {
       align-items: center;
       gap: 12px;
       margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 2px solid var(--border-color);
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-card);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      user-select: none;
+    }
+    
+    .category-header:hover {
+      border-color: var(--royal-blue);
+      transform: translateX(4px);
+      box-shadow: 0 4px 12px rgba(46, 126, 254, 0.15);
+    }
+    
+    .category-header.collapsed {
+      margin-bottom: 0;
+    }
+    
+    .category-header .collapse-icon {
+      margin-left: auto;
+      font-size: 1.2rem;
+      transition: transform 0.3s ease;
+      color: var(--text-muted);
+    }
+    
+    .category-header.collapsed .collapse-icon {
+      transform: rotate(-90deg);
     }
     
     .category-icon {
@@ -219,11 +245,25 @@ module.exports = function(user, staffData, filters = {}) {
     }
     
     .category-count {
-      background: var(--bg-card);
+      background: var(--bg-dark);
       padding: 4px 12px;
       border-radius: 20px;
       font-size: 0.85rem;
       color: var(--text-muted);
+    }
+    
+    .staff-grid-wrapper {
+      overflow: hidden;
+      transition: max-height 0.4s ease, opacity 0.3s ease, margin 0.3s ease;
+      max-height: 2000px;
+      opacity: 1;
+      margin-top: 16px;
+    }
+    
+    .staff-grid-wrapper.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin-top: 0;
     }
     
     /* Staff Grid */
@@ -567,44 +607,47 @@ module.exports = function(user, staffData, filters = {}) {
       
       return `
         <div class="category-section" data-category="${categoryName}">
-          <div class="category-header" style="border-color: ${categoryData.color}40;">
+          <div class="category-header" style="border-color: ${categoryData.color};" onclick="toggleCategory(this)">
             <span class="category-icon">${categoryData.icon}</span>
             <span class="category-title" style="color: ${categoryData.color}">${categoryName}</span>
             <span class="category-count">${members.length} members</span>
+            <span class="collapse-icon">▼</span>
           </div>
           
-          <div class="staff-grid">
-            ${members.length === 0 ? `
-              <div class="empty-category">No staff members in this category</div>
-            ` : members.map(member => {
-              const specialtyDisplay = member.category.specialties && member.category.specialties.length > 0
-                ? formatSpecialtiesHTML(member.category.specialties)
-                : '';
-              
-              return `
-                <a href="/admin/staff/${member.id}" class="staff-card ${member.status}" data-id="${member.id}" data-name="${member.username.toLowerCase()}" data-category="${categoryName}" data-status="${member.status}" data-infractions="${member.stats.infractionsReceived}">
-                  <img src="${member.avatar}" alt="${escapeHtml(member.username)}" class="staff-avatar">
-                  <div class="staff-info">
-                    <div class="staff-name">
-                      ${escapeHtml(member.displayName || member.username)}
-                      ${member.status !== 'active' ? `<span class="status-badge ${member.status}">${member.status.toUpperCase()}</span>` : ''}
+          <div class="staff-grid-wrapper">
+            <div class="staff-grid">
+              ${members.length === 0 ? `
+                <div class="empty-category">No staff members in this category</div>
+              ` : members.map(member => {
+                const specialtyDisplay = member.category.specialties && member.category.specialties.length > 0
+                  ? formatSpecialtiesHTML(member.category.specialties)
+                  : '';
+                
+                return `
+                  <a href="/admin/staff/${member.id}" class="staff-card ${member.status}" data-id="${member.id}" data-name="${member.username.toLowerCase()}" data-category="${categoryName}" data-status="${member.status}" data-infractions="${member.stats.infractionsReceived}">
+                    <img src="${member.avatar}" alt="${escapeHtml(member.username)}" class="staff-avatar">
+                    <div class="staff-info">
+                      <div class="staff-name">
+                        ${escapeHtml(member.displayName || member.username)}
+                        ${member.status !== 'active' ? `<span class="status-badge ${member.status}">${member.status.toUpperCase()}</span>` : ''}
+                      </div>
+                      <div class="staff-category">
+                        ${categoryName}${member.category.position ? ` • ${member.category.position.name}` : ''}
+                        ${specialtyDisplay}
+                        ${member.category.additionalCategories && member.category.additionalCategories.length > 0 ? 
+                          `<span class="tooltip" data-tooltip="${member.category.additionalCategories.map(c => c.name).join(', ')}" style="color: var(--text-muted); font-size: 0.8rem;"> (+${member.category.additionalCategories.length} more)</span>` : ''}
+                      </div>
+                      <div class="staff-meta">
+                        <span title="Infractions Received">⚠️ ${member.stats.infractionsReceived}</span>
+                        ${categoryData.priority <= 4 ? `<span title="Moderations Issued">🛡️ ${member.stats.moderationsIssued}</span>` : ''}
+                        <span title="Staff Since">📅 ${formatDate(member.record?.staff_since)}</span>
+                      </div>
                     </div>
-                    <div class="staff-category">
-                      ${categoryName}${member.category.position ? ` • ${member.category.position.name}` : ''}
-                      ${specialtyDisplay}
-                      ${member.category.additionalCategories && member.category.additionalCategories.length > 0 ? 
-                        `<span class="tooltip" data-tooltip="${member.category.additionalCategories.map(c => c.name).join(', ')}" style="color: var(--text-muted); font-size: 0.8rem;"> (+${member.category.additionalCategories.length} more)</span>` : ''}
-                    </div>
-                    <div class="staff-meta">
-                      <span title="Infractions Received">⚠️ ${member.stats.infractionsReceived}</span>
-                      ${categoryData.priority <= 4 ? `<span title="Moderations Issued">🛡️ ${member.stats.moderationsIssued}</span>` : ''}
-                      <span title="Staff Since">📅 ${formatDate(member.record?.staff_since)}</span>
-                    </div>
-                  </div>
-                  <span class="staff-arrow">→</span>
-                </a>
-              `;
-            }).join('')}
+                    <span class="staff-arrow">→</span>
+                  </a>
+                `;
+              }).join('')}
+            </div>
           </div>
         </div>
       `;
@@ -627,6 +670,49 @@ module.exports = function(user, staffData, filters = {}) {
     function toggleFilters() {
       document.getElementById('advancedFilters').classList.toggle('show');
     }
+    
+    // Category collapse/expand functionality
+    function toggleCategory(headerElement) {
+      const section = headerElement.closest('.category-section');
+      const gridWrapper = section.querySelector('.staff-grid-wrapper');
+      
+      headerElement.classList.toggle('collapsed');
+      gridWrapper.classList.toggle('collapsed');
+      
+      // Store collapsed state in localStorage
+      const categoryName = section.dataset.category;
+      const collapsedCategories = JSON.parse(localStorage.getItem('collapsedStaffCategories') || '[]');
+      
+      if (headerElement.classList.contains('collapsed')) {
+        if (!collapsedCategories.includes(categoryName)) {
+          collapsedCategories.push(categoryName);
+        }
+      } else {
+        const index = collapsedCategories.indexOf(categoryName);
+        if (index > -1) {
+          collapsedCategories.splice(index, 1);
+        }
+      }
+      
+      localStorage.setItem('collapsedStaffCategories', JSON.stringify(collapsedCategories));
+    }
+    
+    // Restore collapsed state on page load
+    document.addEventListener('DOMContentLoaded', function() {
+      const collapsedCategories = JSON.parse(localStorage.getItem('collapsedStaffCategories') || '[]');
+      
+      collapsedCategories.forEach(categoryName => {
+        const section = document.querySelector(`.category-section[data-category="${categoryName}"]`);
+        if (section) {
+          const header = section.querySelector('.category-header');
+          const gridWrapper = section.querySelector('.staff-grid-wrapper');
+          if (header && gridWrapper) {
+            header.classList.add('collapsed');
+            gridWrapper.classList.add('collapsed');
+          }
+        }
+      });
+    });
     
     function applyFilters() {
       const search = searchInput.value.toLowerCase();

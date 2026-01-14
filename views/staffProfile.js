@@ -101,9 +101,10 @@ function generateStyles() {
       .loa-info { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
       
       /* Modals */
-      .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 9999; }
-      .modal-overlay.show { display: flex !important; }
-      .modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; z-index: 10000; position: relative; border: 1px solid var(--border-color); box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+      .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 99999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+      .modal-overlay.show { display: flex !important; opacity: 1 !important; visibility: visible !important; }
+      .modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; z-index: 100000; position: relative; border: 1px solid var(--border-color); box-shadow: 0 20px 60px rgba(0,0,0,0.5); transform: scale(0.9); transition: transform 0.3s ease; }
+      .modal-overlay.show .modal { transform: scale(1); }
       .modal h2 { margin-bottom: 20px; color: var(--text-primary); }
       .modal p { color: var(--text-secondary); margin-bottom: 16px; }
       .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
@@ -503,8 +504,13 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     function showModal(id) { 
       const modal = document.getElementById(id);
       if (modal) {
+        // Force display and add show class
         modal.style.display = 'flex';
-        modal.classList.add('show');
+        // Use setTimeout to ensure transition works
+        setTimeout(() => {
+          modal.classList.add('show');
+        }, 10);
+        document.body.style.overflow = 'hidden';
         console.log('Showing modal:', id);
       } else {
         console.error('Modal not found:', id);
@@ -513,10 +519,23 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     function hideModal(id) { 
       const modal = document.getElementById(id);
       if (modal) {
-        modal.style.display = 'none';
         modal.classList.remove('show');
+        // Delay hiding display until transition completes
+        setTimeout(() => {
+          modal.style.display = 'none';
+        }, 300);
+        document.body.style.overflow = '';
       }
     }
+    
+    // Close modal on Escape key
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.show').forEach(modal => {
+          hideModal(modal.id);
+        });
+      }
+    });
     function showPromoteModal() { showModal('promoteModal'); }
     function showDemoteModal() { showModal('demoteModal'); }
     function showInfractModal() { showModal('infractModal'); }

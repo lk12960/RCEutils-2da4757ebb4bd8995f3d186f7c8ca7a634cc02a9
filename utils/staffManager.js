@@ -419,40 +419,34 @@ async function getAllStaffMembers(client) {
   };
   
   try {
-    // Method 1: Get from role.members (cached)
-    console.log(`[Staff] Checking role.members for ${staffRole.name}...`);
-    for (const [memberId, member] of staffRole.members) {
-      await processMember(member);
-    }
-    console.log(`[Staff] Found ${staffMembers.length} from role.members`);
-    
-    // Method 2: Also check guild.members.cache
-    if (staffMembers.length < 5) { // If we found very few, check cache too
+    // Method 1: Always try to fetch members with the staff role first for accuracy
+    console.log(`[Staff] Fetching all members with staff role...`);
+    try {
+      // Fetch all guild members to ensure we have the latest data
+      const fetched = await guild.members.fetch();
+      console.log(`[Staff] Fetched ${fetched.size} total guild members`);
+      
+      // Process all fetched members
+      for (const [memberId, member] of fetched) {
+        await processMember(member);
+      }
+      console.log(`[Staff] Found ${staffMembers.length} staff members after full fetch`);
+    } catch (fetchErr) {
+      console.error('[Staff] Full fetch failed, falling back to cache:', fetchErr.message);
+      
+      // Fallback: Method 2 - Get from role.members (cached)
+      console.log(`[Staff] Checking role.members for ${staffRole.name}...`);
+      for (const [memberId, member] of staffRole.members) {
+        await processMember(member);
+      }
+      console.log(`[Staff] Found ${staffMembers.length} from role.members`);
+      
+      // Method 3: Also check guild.members.cache
       console.log(`[Staff] Checking guild.members.cache...`);
       for (const [memberId, member] of guild.members.cache) {
         await processMember(member);
       }
       console.log(`[Staff] Total after cache: ${staffMembers.length}`);
-    }
-    
-    // Method 3: If still low, try fetching members with the role
-    if (staffMembers.length < 3) {
-      console.log(`[Staff] Attempting to fetch members with staff role...`);
-      try {
-        // Fetch members who have the staff role
-        const fetched = await guild.members.fetch({ 
-          query: '', 
-          limit: 100
-        });
-        console.log(`[Staff] Fetched ${fetched.size} members`);
-        
-        for (const [memberId, member] of fetched) {
-          await processMember(member);
-        }
-        console.log(`[Staff] Total after fetch: ${staffMembers.length}`);
-      } catch (fetchErr) {
-        console.error('[Staff] Fetch failed:', fetchErr.message);
-      }
     }
     
   } catch (err) {
