@@ -353,9 +353,137 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       </div>
     </div>
   </div>
-  
-  <!-- Modals -->
-  ${generateModals(staffMember)}
+
+  <!-- Modals - Must be at body root level -->
+  <div id="modalsContainer">
+    <!-- Promote Modal -->
+    <div class="modal-overlay" id="promoteModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>⬆️ Promote Staff Member</h2>
+        <p>Promoting <strong>${escapeHtml(staffMember.username)}</strong></p>
+        <div class="form-group">
+          <label>Reason (optional)</label>
+          <textarea id="promoteReason" placeholder="Reason for promotion..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('promoteModal')">Cancel</button>
+          <button class="action-btn promote" onclick="promoteStaff()">Promote</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Demote Modal -->
+    <div class="modal-overlay" id="demoteModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>⬇️ Demote Staff Member</h2>
+        <p>Demoting <strong>${escapeHtml(staffMember.username)}</strong></p>
+        <div class="form-group">
+          <label>Reason (required)</label>
+          <textarea id="demoteReason" placeholder="Reason for demotion..." required></textarea>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">⚠️ A demotion infraction will be automatically issued.</p>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('demoteModal')">Cancel</button>
+          <button class="action-btn demote" onclick="demoteStaff()">Demote</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Infract Modal -->
+    <div class="modal-overlay" id="infractModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>⚠️ Issue Infraction</h2>
+        <p>Issuing infraction to <strong>${escapeHtml(staffMember.username)}</strong></p>
+        <div class="form-group">
+          <label>Type</label>
+          <select id="infractType">
+            <option value="Notice">Notice</option>
+            <option value="Warning">Warning</option>
+            <option value="Strike">Strike</option>
+            <option value="Termination">Termination</option>
+            <option value="Blacklist">Blacklist</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Reason (required)</label>
+          <textarea id="infractReason" placeholder="Reason for infraction..." required></textarea>
+        </div>
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <textarea id="infractNotes" placeholder="Additional notes..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('infractModal')">Cancel</button>
+          <button class="action-btn infract" onclick="infractStaff()">Issue Infraction</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Suspend Modal -->
+    <div class="modal-overlay" id="suspendModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>⏸️ Suspend Staff Member</h2>
+        <p>Suspending <strong>${escapeHtml(staffMember.username)}</strong></p>
+        <div class="form-group">
+          <label>Duration</label>
+          <select id="suspendDuration">
+            <option value="1d">1 Day</option>
+            <option value="3d">3 Days</option>
+            <option value="1w">1 Week</option>
+            <option value="2w">2 Weeks</option>
+            <option value="1m">1 Month</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Reason (required)</label>
+          <textarea id="suspendReason" placeholder="Reason for suspension..." required></textarea>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">⚠️ All staff roles will be temporarily removed and restored when suspension ends.</p>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('suspendModal')">Cancel</button>
+          <button class="action-btn suspend" onclick="suspendStaff()">Suspend</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Wipe Modal -->
+    <div class="modal-overlay" id="wipeModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>🗑️ Wipe Infractions</h2>
+        <p>This will permanently delete ALL infractions for <strong>${escapeHtml(staffMember.username)}</strong>.</p>
+        <p style="color: #ff4757; font-weight: 600;">⚠️ This action cannot be undone!</p>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('wipeModal')">Cancel</button>
+          <button class="action-btn infract" onclick="wipeInfractions()">Wipe All Infractions</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- LOA Modal -->
+    <div class="modal-overlay" id="loaModal">
+      <div class="modal" onclick="event.stopPropagation()">
+        <h2>🏖️ Start LOA</h2>
+        <p>Starting LOA for <strong>${escapeHtml(staffMember.username)}</strong></p>
+        <div class="form-group">
+          <label>Duration</label>
+          <select id="loaDuration">
+            <option value="1d">1 Day</option>
+            <option value="3d">3 Days</option>
+            <option value="1w">1 Week</option>
+            <option value="2w">2 Weeks</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Reason</label>
+          <textarea id="loaReason" placeholder="Reason for LOA..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="action-btn secondary" onclick="hideModal('loaModal')">Cancel</button>
+          <button class="action-btn promote" onclick="startLOA()">Start LOA</button>
+        </div>
+      </div>
+    </div>
+  </div>
   
   <script>
     // Staff member ID for API calls
@@ -372,14 +500,38 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     });
     
     // Modal functions
-    function showModal(id) { document.getElementById(id).classList.add('show'); }
-    function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+    function showModal(id) { 
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.style.display = 'flex';
+        modal.classList.add('show');
+        console.log('Showing modal:', id);
+      } else {
+        console.error('Modal not found:', id);
+      }
+    }
+    function hideModal(id) { 
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+      }
+    }
     function showPromoteModal() { showModal('promoteModal'); }
     function showDemoteModal() { showModal('demoteModal'); }
     function showInfractModal() { showModal('infractModal'); }
     function showSuspendModal() { showModal('suspendModal'); }
     function showWipeModal() { showModal('wipeModal'); }
     function showStartLOAModal() { showModal('loaModal'); }
+    
+    // Close modal when clicking overlay background
+    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+      overlay.addEventListener('click', function(e) {
+        if (e.target === this) {
+          hideModal(this.id);
+        }
+      });
+    });
     
     // API calls
     async function apiCall(endpoint, method = 'POST', body = null) {

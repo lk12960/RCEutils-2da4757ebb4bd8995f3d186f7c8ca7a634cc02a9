@@ -387,69 +387,76 @@ async function getAllStaffMembers(client) {
   if (!staffRole) throw new Error('General staff role not found');
   
   const staffMembers = [];
+  const processedIds = new Set();
   
-  // Get members from cache first, they should be populated if bot has GUILD_MEMBERS intent
-  // If member count is small, fetch the role members
+  // Helper to process a member
+  const processMember = async (member) => {
+    if (processedIds.has(member.id)) return;
+    if (!member.roles.cache.has(GENERAL_STAFF_ROLE)) return;
+    
+    processedIds.add(member.id);
+    
+    const roleIds = Array.from(member.roles.cache.keys());
+    const category = determineStaffCategory(roleIds);
+    
+    if (!category) return;
+    
+    const record = await getOrCreateStaffRecord(member.id).catch(() => null);
+    const stats = await getStaffStats(member.id).catch(() => ({}));
+    
+    staffMembers.push({
+      id: member.id,
+      username: member.user.username,
+      displayName: member.displayName,
+      avatar: member.user.displayAvatarURL({ size: 128 }),
+      roles: roleIds,
+      category,
+      record,
+      stats,
+      joinedAt: member.joinedAt,
+      status: record?.status || 'active'
+    });
+  };
+  
   try {
-    // Try to get members who have the staff role from cache
-    for (const [memberId, member] of guild.members.cache) {
-      if (!member.roles.cache.has(GENERAL_STAFF_ROLE)) continue;
-      
-      const roleIds = Array.from(member.roles.cache.keys());
-      const category = determineStaffCategory(roleIds);
-      
-      if (!category) continue;
-      
-      // Get or create staff record
-      const record = await getOrCreateStaffRecord(memberId).catch(() => null);
-      
-      // Get stats
-      const stats = await getStaffStats(memberId).catch(() => ({}));
-      
-      staffMembers.push({
-        id: memberId,
-        username: member.user.username,
-        displayName: member.displayName,
-        avatar: member.user.displayAvatarURL({ size: 128 }),
-        roles: roleIds,
-        category,
-        record,
-        stats,
-        joinedAt: member.joinedAt,
-        status: record?.status || 'active'
-      });
+    // Method 1: Get from role.members (cached)
+    console.log(`[Staff] Checking role.members for ${staffRole.name}...`);
+    for (const [memberId, member] of staffRole.members) {
+      await processMember(member);
+    }
+    console.log(`[Staff] Found ${staffMembers.length} from role.members`);
+    
+    // Method 2: Also check guild.members.cache
+    if (staffMembers.length < 5) { // If we found very few, check cache too
+      console.log(`[Staff] Checking guild.members.cache...`);
+      for (const [memberId, member] of guild.members.cache) {
+        await processMember(member);
+      }
+      console.log(`[Staff] Total after cache: ${staffMembers.length}`);
     }
     
-    // If we got no members from cache, try fetching with the role
-    if (staffMembers.length === 0) {
-      // Fetch members with the staff role in smaller batches
-      const roleMembers = staffRole.members;
-      for (const [memberId, member] of roleMembers) {
-        const roleIds = Array.from(member.roles.cache.keys());
-        const category = determineStaffCategory(roleIds);
-        
-        if (!category) continue;
-        
-        const record = await getOrCreateStaffRecord(memberId).catch(() => null);
-        const stats = await getStaffStats(memberId).catch(() => ({}));
-        
-        staffMembers.push({
-          id: memberId,
-          username: member.user.username,
-          displayName: member.displayName,
-          avatar: member.user.displayAvatarURL({ size: 128 }),
-          roles: roleIds,
-          category,
-          record,
-          stats,
-          joinedAt: member.joinedAt,
-          status: record?.status || 'active'
+    // Method 3: If still low, try fetching members with the role
+    if (staffMembers.length < 3) {
+      console.log(`[Staff] Attempting to fetch members with staff role...`);
+      try {
+        // Fetch members who have the staff role
+        const fetched = await guild.members.fetch({ 
+          query: '', 
+          limit: 100
         });
+        console.log(`[Staff] Fetched ${fetched.size} members`);
+        
+        for (const [memberId, member] of fetched) {
+          await processMember(member);
+        }
+        console.log(`[Staff] Total after fetch: ${staffMembers.length}`);
+      } catch (fetchErr) {
+        console.error('[Staff] Fetch failed:', fetchErr.message);
       }
     }
+    
   } catch (err) {
     console.error('Error fetching staff members:', err.message);
-    // Return whatever we have from cache
   }
   
   // Sort by category priority, then by position level, then by name
@@ -463,6 +470,7 @@ async function getAllStaffMembers(client) {
     return a.username.localeCompare(b.username);
   });
   
+  console.log(`[Staff] Returning ${staffMembers.length} staff members`);
   return staffMembers;
 }
 
