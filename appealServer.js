@@ -729,6 +729,7 @@ function registerRoutes() {
   
   /**
    * POST /admin/staff/:id/infract - Issue infraction
+   * Matches the /infraction-issue slash command behavior exactly
    */
   app.post('/admin/staff/:id/infract', requireAdminRole, async (req, res) => {
     try {
@@ -737,9 +738,10 @@ function registerRoutes() {
         return res.status(400).json({ success: false, message: 'Reason is required' });
       }
       
-      const caseId = await createInfraction(req.params.id, req.session.user.id, type, reason, notes);
+      const { updateInfractionMessageId } = require('./utils/infractionManager');
+      const caseId = await createInfraction(req.params.id, req.session.user.id, type, reason, notes || 'None');
       
-      // Log action
+      // Log action to staff audit
       await staffManager.logStaffAction(req.params.id, 'INFRACTION_ISSUED', {
         caseId,
         type,
@@ -747,25 +749,68 @@ function registerRoutes() {
         notes
       }, req.session.user.id);
       
-      // DM user about infraction
+      // Log to infractions channel and DM user - EXACTLY like /infraction-issue command
       if (global.discordClient) {
+        const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+        const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || process.env.INFRACTION_CHANNEL_IDS;
+        
         try {
-          const { EmbedBuilder } = require('discord.js');
           const user = await global.discordClient.users.fetch(req.params.id).catch(() => null);
+          const issuer = await global.discordClient.users.fetch(req.session.user.id).catch(() => null);
+          const timestamp = new Date();
+          const dot = '•';
+          const formattedDate = `<t:${Math.floor(timestamp.getTime() / 1000)}:F>`;
+          
+          // Create embed matching the slash command EXACTLY
+          const embed = new EmbedBuilder()
+            .setColor('#e566e2')
+            .setAuthor({ name: user ? user.tag : req.params.id, iconURL: user?.displayAvatarURL() })
+            .setTitle('Staff Punishment')
+            .addFields(
+              { name: 'Case', value: `#${caseId}`, inline: true },
+              { name: 'Punishment', value: type, inline: true },
+              { name: 'Date', value: formattedDate, inline: true },
+              { name: 'Reason', value: reason, inline: true },
+              { name: 'Notes', value: notes || 'None', inline: true }
+            )
+            .setFooter({
+              text: `Issued by: ${issuer ? issuer.tag : req.session.user.username} ${dot} ${timestamp.toUTCString()}`,
+              iconURL: issuer?.displayAvatarURL()
+            });
+          
+          // Send embed WITHOUT button to infractions log channel
+          let logMessage;
+          if (INFRACTIONS_CHANNEL_ID) {
+            const guild = global.discordClient.guilds.cache.get(staffManager.TARGET_GUILD_ID);
+            const infractionsChannel = guild?.channels.cache.get(INFRACTIONS_CHANNEL_ID);
+            if (infractionsChannel?.isTextBased()) {
+              logMessage = await infractionsChannel.send({ embeds: [embed] });
+            }
+          }
+          
+          // Update DB with message ID if message was sent
+          if (logMessage) {
+            await updateInfractionMessageId(caseId, logMessage.id);
+          }
+          
+          // Send embed WITH button ONLY to user DM (matching slash command)
           if (user) {
-            const embed = new EmbedBuilder()
-              .setTitle('⚠️ Staff Infraction Issued')
-              .setColor(0xFF4757)
-              .addFields([
-                { name: 'Type', value: type, inline: true },
-                { name: 'Reason', value: reason, inline: false }
-              ])
-              .setTimestamp();
-            if (notes) embed.addFields({ name: 'Notes', value: notes, inline: false });
-            await user.send({ embeds: [embed] });
+            const footerButton = new ButtonBuilder()
+              .setLabel("Sent from: King's Customs")
+              .setStyle(ButtonStyle.Secondary)
+              .setCustomId('source_disabled')
+              .setDisabled(true);
+            
+            const row = new ActionRowBuilder().addComponents(footerButton);
+            
+            try {
+              await user.send({ embeds: [embed], components: [row] });
+            } catch (dmErr) {
+              console.warn(`⚠️ Could not DM ${user.tag} — they might have DMs disabled.`);
+            }
           }
         } catch (e) {
-          console.error('Failed to DM user about infraction:', e.message);
+          console.error('Failed to log/DM infraction:', e.message);
         }
       }
       
@@ -1008,10 +1053,75 @@ function registerRoutes() {
   
   /**
    * POST /admin/infractions/:id/revoke - Revoke infraction
+   * Matches the /infraction-revoke slash command behavior exactly
    */
   app.post('/admin/infractions/:id/revoke', requireAdminRole, async (req, res) => {
     try {
-      await revokeInfraction(parseInt(req.params.id));
+      const { getInfractionById } = require('./utils/infractionManager');
+      const caseId = parseInt(req.params.id);
+      
+      // Get infraction details first
+      const infraction = await getInfractionById(caseId);
+      if (!infraction) {
+        return res.status(404).json({ success: false, message: `Infraction case #${caseId} not found.` });
+      }
+      
+      if (infraction.revoked) {
+        return res.status(400).json({ success: false, message: `Infraction case #${caseId} is already revoked.` });
+      }
+      
+      // Revoke the infraction
+      await revokeInfraction(caseId);
+      
+      // Update original infraction embed in log channel and DM user - EXACTLY like /infraction-revoke command
+      if (global.discordClient) {
+        const { EmbedBuilder } = require('discord.js');
+        const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || process.env.INFRACTION_CHANNEL_IDS;
+        const DOT_EMOJI = '•';
+        const GUILD_TAG = "King's Customs";
+        
+        try {
+          const issuer = await global.discordClient.users.fetch(req.session.user.id).catch(() => null);
+          
+          // Update original infraction embed in log channel with revoked status
+          if (infraction.message_id && INFRACTIONS_CHANNEL_ID) {
+            const channel = await global.discordClient.channels.fetch(INFRACTIONS_CHANNEL_ID).catch(() => null);
+            if (channel?.isTextBased()) {
+              const message = await channel.messages.fetch(infraction.message_id).catch(() => null);
+              if (message && message.embeds[0]) {
+                const embed = message.embeds[0];
+                // Clone original embed, keep all fields and data, just add status field and update title/footer
+                const revokedEmbed = EmbedBuilder.from(embed)
+                  .setColor(0x808080)
+                  .setTitle(embed.data.title ? `~ Revoked ${embed.data.title} ~` : `~ Revoked Infraction Case #${infraction.id} ~`)
+                  .addFields({ name: 'Status', value: 'Revoked', inline: true })
+                  .setFooter({
+                    text: `Revoked by: ${issuer ? issuer.tag : req.session.user.username} ${DOT_EMOJI} ${new Date().toUTCString()}`,
+                    iconURL: issuer?.displayAvatarURL()
+                  });
+                
+                await message.edit({ embeds: [revokedEmbed], components: [] });
+                
+                // Send a small message under original embed mentioning revocation
+                await channel.send({ content: `Revoked by ${issuer ? issuer.tag : req.session.user.username}`, reply: { messageReference: message.id } });
+              }
+            }
+          }
+          
+          // DM the user with a simple text message (no embed) - matching slash command
+          try {
+            const user = await global.discordClient.users.fetch(infraction.user_id).catch(() => null);
+            if (user) {
+              await user.send(`Your ${infraction.type.toLowerCase()} for \`${infraction.reason}\` in ${GUILD_TAG} was revoked by ${issuer ? issuer.tag : req.session.user.username}.`);
+            }
+          } catch {
+            // User DMs off or blocked, silently ignore
+          }
+        } catch (e) {
+          console.error('Failed to update infraction log/DM for revoke:', e.message);
+        }
+      }
+      
       res.json({ success: true });
     } catch (error) {
       console.error('Error revoking infraction:', error);
@@ -1021,10 +1131,90 @@ function registerRoutes() {
   
   /**
    * POST /admin/infractions/:id/unrevoke - Unrevoke infraction
+   * Matches the /infraction-unrevoke slash command behavior exactly
    */
   app.post('/admin/infractions/:id/unrevoke', requireAdminRole, async (req, res) => {
     try {
-      await unrevokeInfraction(parseInt(req.params.id));
+      const { getInfractionById } = require('./utils/infractionManager');
+      const caseId = parseInt(req.params.id);
+      
+      // Get infraction details first
+      const infraction = await getInfractionById(caseId);
+      if (!infraction) {
+        return res.status(404).json({ success: false, message: `Infraction case #${caseId} not found.` });
+      }
+      
+      if (!infraction.revoked) {
+        return res.status(400).json({ success: false, message: `Infraction case #${caseId} is not revoked.` });
+      }
+      
+      // Unrevoke the infraction
+      await unrevokeInfraction(caseId);
+      
+      // Update original infraction message embed (restore original info) and DM user - EXACTLY like /infraction-unrevoke command
+      if (global.discordClient) {
+        const { EmbedBuilder } = require('discord.js');
+        const INFRACTIONS_CHANNEL_ID = process.env.INFRACTIONS_CHANNEL_ID || process.env.INFRACTION_CHANNEL_IDS;
+        const DOT_EMOJI = '•';
+        const GUILD_TAG = "King's Customs";
+        
+        try {
+          const issuer = await global.discordClient.users.fetch(req.session.user.id).catch(() => null);
+          
+          // Update original infraction message embed (restore original info)
+          if (infraction.message_id && INFRACTIONS_CHANNEL_ID) {
+            const channel = await global.discordClient.channels.fetch(INFRACTIONS_CHANNEL_ID).catch(() => null);
+            if (channel?.isTextBased()) {
+              const originalMessage = await channel.messages.fetch(infraction.message_id).catch(() => null);
+              if (originalMessage && originalMessage.embeds[0]) {
+                const embed = originalMessage.embeds[0];
+                const restoredEmbed = EmbedBuilder.from(embed)
+                  .setColor(0x3a5ae4)
+                  .setTitle(`Staff Punishment • Case #${infraction.id}`)
+                  .spliceFields(0, embed.data.fields?.length || 0)
+                  .addFields(
+                    { name: 'Case', value: `#${infraction.id}`, inline: true },
+                    { name: 'Punishment', value: infraction.type, inline: true },
+                    { name: 'Date', value: `<t:${Math.floor(new Date(infraction.timestamp).getTime() / 1000)}:F>`, inline: true },
+                    { name: 'Reason', value: infraction.reason || 'No reason provided', inline: true },
+                    { name: 'Notes', value: infraction.notes || 'None', inline: true }
+                  )
+                  .setFooter({
+                    text: `Issued by: Unknown ${DOT_EMOJI} ${new Date(infraction.timestamp).toUTCString()}`,
+                    iconURL: null
+                  });
+                
+                await originalMessage.edit({ embeds: [restoredEmbed] });
+                
+                // Edit the revocation message ("Revoked by ...") to "Unrevoked by ..."
+                const messagesAfter = await channel.messages.fetch({ after: originalMessage.id, limit: 5 });
+                const revocationMessage = messagesAfter.find(msg =>
+                  msg.author.id === global.discordClient.user.id &&
+                  msg.reference?.messageId === originalMessage.id &&
+                  msg.content?.startsWith('Revoked by')
+                );
+                
+                if (revocationMessage) {
+                  await revocationMessage.edit({ content: `Unrevoked by ${issuer ? issuer.tag : req.session.user.username}` });
+                }
+              }
+            }
+          }
+          
+          // DM the user a simple plain text message (no embed) - matching slash command
+          try {
+            const user = await global.discordClient.users.fetch(infraction.user_id).catch(() => null);
+            if (user) {
+              await user.send(`Your ${infraction.type.toLowerCase()} for \`${infraction.reason}\` in ${GUILD_TAG} has been **unrevoked** by ${issuer ? issuer.tag : req.session.user.username}.`);
+            }
+          } catch {
+            // silently fail if DMs are closed
+          }
+        } catch (e) {
+          console.error('Failed to update infraction log/DM for unrevoke:', e.message);
+        }
+      }
+      
       res.json({ success: true });
     } catch (error) {
       console.error('Error unrevoking infraction:', error);
