@@ -100,11 +100,13 @@ function generateStyles() {
       .loa-active { border-left: 4px solid #ffa502; }
       .loa-info { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
       
-      /* Modals */
-      .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; z-index: 99999; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
-      .modal-overlay.show { display: flex !important; opacity: 1 !important; visibility: visible !important; }
-      .modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; z-index: 100000; position: relative; border: 1px solid var(--border-color); box-shadow: 0 20px 60px rgba(0,0,0,0.5); transform: scale(0.9); transition: transform 0.3s ease; }
-      .modal-overlay.show .modal { transform: scale(1); }
+      /* Modals - Staff Profile Specific */
+      .staff-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 99999; backdrop-filter: blur(4px); }
+      .staff-modal-overlay.show { display: flex !important; }
+      .staff-modal { background: var(--bg-card); border-radius: 16px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; z-index: 100000; position: relative; border: 1px solid var(--border-color); box-shadow: 0 20px 60px rgba(0,0,0,0.5); animation: modalPopIn 0.3s ease; }
+      @keyframes modalPopIn { from { opacity: 0; transform: scale(0.9) translateY(-20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      .staff-modal h2 { margin-bottom: 20px; color: var(--text-primary); }
+      .staff-modal p { color: var(--text-secondary); margin-bottom: 16px; }
       .modal h2 { margin-bottom: 20px; color: var(--text-primary); }
       .modal p { color: var(--text-secondary); margin-bottom: 16px; }
       .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
@@ -358,8 +360,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
   <!-- Modals - Must be at body root level -->
   <div id="modalsContainer">
     <!-- Promote Modal -->
-    <div class="modal-overlay" id="promoteModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="promoteModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>⬆️ Promote Staff Member</h2>
         <p>Promoting <strong>${escapeHtml(staffMember.username)}</strong></p>
         <div class="form-group">
@@ -374,8 +376,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     </div>
     
     <!-- Demote Modal -->
-    <div class="modal-overlay" id="demoteModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="demoteModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>⬇️ Demote Staff Member</h2>
         <p>Demoting <strong>${escapeHtml(staffMember.username)}</strong></p>
         <div class="form-group">
@@ -391,8 +393,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     </div>
     
     <!-- Infract Modal -->
-    <div class="modal-overlay" id="infractModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="infractModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>⚠️ Issue Infraction</h2>
         <p>Issuing infraction to <strong>${escapeHtml(staffMember.username)}</strong></p>
         <div class="form-group">
@@ -421,8 +423,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     </div>
     
     <!-- Suspend Modal -->
-    <div class="modal-overlay" id="suspendModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="suspendModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>⏸️ Suspend Staff Member</h2>
         <p>Suspending <strong>${escapeHtml(staffMember.username)}</strong></p>
         <div class="form-group">
@@ -448,8 +450,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     </div>
     
     <!-- Wipe Modal -->
-    <div class="modal-overlay" id="wipeModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="wipeModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>🗑️ Wipe Infractions</h2>
         <p>This will permanently delete ALL infractions for <strong>${escapeHtml(staffMember.username)}</strong>.</p>
         <p style="color: #ff4757; font-weight: 600;">⚠️ This action cannot be undone!</p>
@@ -461,8 +463,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     </div>
     
     <!-- LOA Modal -->
-    <div class="modal-overlay" id="loaModal">
-      <div class="modal" onclick="event.stopPropagation()">
+    <div class="staff-modal-overlay" id="loaModal">
+      <div class="staff-modal" onclick="event.stopPropagation()">
         <h2>🏖️ Start LOA</h2>
         <p>Starting LOA for <strong>${escapeHtml(staffMember.username)}</strong></p>
         <div class="form-group">
@@ -504,12 +506,8 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     function showModal(id) { 
       const modal = document.getElementById(id);
       if (modal) {
-        // Force display and add show class
         modal.style.display = 'flex';
-        // Use setTimeout to ensure transition works
-        setTimeout(() => {
-          modal.classList.add('show');
-        }, 10);
+        modal.classList.add('show');
         document.body.style.overflow = 'hidden';
         console.log('Showing modal:', id);
       } else {
@@ -520,10 +518,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
       const modal = document.getElementById(id);
       if (modal) {
         modal.classList.remove('show');
-        // Delay hiding display until transition completes
-        setTimeout(() => {
-          modal.style.display = 'none';
-        }, 300);
+        modal.style.display = 'none';
         document.body.style.overflow = '';
       }
     }
@@ -531,7 +526,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     // Close modal on Escape key
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') {
-        document.querySelectorAll('.modal-overlay.show').forEach(modal => {
+        document.querySelectorAll('.staff-modal-overlay.show').forEach(modal => {
           hideModal(modal.id);
         });
       }
@@ -544,7 +539,7 @@ function renderStaffProfile(user, staffMember, additionalData = {}) {
     function showStartLOAModal() { showModal('loaModal'); }
     
     // Close modal when clicking overlay background
-    document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    document.querySelectorAll('.staff-modal-overlay').forEach(overlay => {
       overlay.addEventListener('click', function(e) {
         if (e.target === this) {
           hideModal(this.id);
