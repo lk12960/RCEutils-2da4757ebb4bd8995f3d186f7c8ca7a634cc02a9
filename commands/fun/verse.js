@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fetch = require('node-fetch');
 
 const bibleReferences = [
   "Genesis 4:7",
@@ -111,6 +110,7 @@ module.exports = {
     const randomRef = bibleReferences[Math.floor(Math.random() * bibleReferences.length)];
 
     try {
+      const fetch = (await import('node-fetch')).default;
       const url = `https://bible-api.com/${encodeURIComponent(randomRef)}`;
       const response = await fetch(url);
       if (!response.ok) throw new Error('Could not fetch verse.');

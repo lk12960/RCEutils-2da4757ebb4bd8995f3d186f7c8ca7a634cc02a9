@@ -1,5 +1,4 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fetch = require('node-fetch');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,6 +14,7 @@ module.exports = {
     const word = interaction.options.getString('word');
 
     try {
+      const fetch = (await import('node-fetch')).default;
       const response = await fetch(`https://api.urbandictionary.com/v0/define?term=${encodeURIComponent(word)}`);
       if (!response.ok) throw new Error('Failed to fetch Urban Dictionary data.');
 
