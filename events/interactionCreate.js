@@ -1587,14 +1587,19 @@ module.exports = {
       }
       if (interaction.customId.startsWith('ticket_claim:')) {
         try {
+          // Defer update immediately to prevent timeout
+          await interaction.deferUpdate();
+          
           const channelId = interaction.customId.split(':')[1];
-          if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+          if (interaction.channel.id !== channelId) {
+            return interaction.followUp({ content: 'Use this in the ticket channel.', ephemeral: true });
+          }
           
           const meta = await getTicketMeta(interaction.channel);
           
           // Check if already claimed
           if (meta.claimedBy) {
-            return interaction.reply({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
+            return interaction.followUp({ content: `❌ This ticket is already claimed by <@${meta.claimedBy}>.`, ephemeral: true });
           }
           
           meta.claimedBy = interaction.user.id;
@@ -1606,8 +1611,8 @@ module.exports = {
             new ButtonBuilder().setCustomId(`ticket_close_reason:${channelId}`).setLabel('Close w/ Reason').setStyle(ButtonStyle.Danger),
           );
           
-          // Update the original message and send response
-          await interaction.update({ components: [newButtons] });
+          // Update the original message
+          await interaction.editReply({ components: [newButtons] });
           
           // Send a follow-up message
           const { EmbedBuilder } = require('discord.js');
@@ -1629,36 +1634,73 @@ module.exports = {
           try {
             if (!interaction.replied && !interaction.deferred) {
               return interaction.reply({ content: '❌ Failed to claim ticket.', ephemeral: true });
+            } else {
+              return interaction.followUp({ content: '❌ Failed to claim ticket.', ephemeral: true });
             }
           } catch {}
         }
       }
       if (interaction.customId.startsWith('ticket_close_reason:')) {
-        const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
-        const modal = new ModalBuilder().setCustomId(`ticket_close_modal:${channelId}`).setTitle('Close Ticket (Reason)');
-        const input = new TextInputBuilder().setCustomId('reason').setLabel('Close reason').setStyle(TextInputStyle.Paragraph).setRequired(true);
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
-        return interaction.showModal(modal);
+        try {
+          const channelId = interaction.customId.split(':')[1];
+          if (interaction.channel.id !== channelId) {
+            return interaction.reply({ content: 'Use this in the ticket channel.', ephemeral: true });
+          }
+          const modal = new ModalBuilder().setCustomId(`ticket_close_modal:${channelId}`).setTitle('Close Ticket (Reason)');
+          const input = new TextInputBuilder().setCustomId('reason').setLabel('Close reason').setStyle(TextInputStyle.Paragraph).setRequired(true);
+          modal.addComponents(new ActionRowBuilder().addComponents(input));
+          return interaction.showModal(modal);
+        } catch (error) {
+          console.error('Error in ticket_close_reason:', error);
+          try {
+            return interaction.reply({ content: '❌ Failed to open close modal.', ephemeral: true });
+          } catch {}
+        }
       }
       if (interaction.customId.startsWith('ticket_close:')) {
-        await interaction.deferReply({ ephemeral: true });
-        const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`ticket_close_confirm:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId('ticket_close_cancel').setLabel('Nevermind').setStyle(ButtonStyle.Secondary),
-        );
-        const embed = new EmbedBuilder().setTitle('Confirm Close').setDescription('Are you sure you want to close this ticket?').setColor(0xFFAA00);
-        return interaction.editReply({ embeds: [embed], components: [row] });
+        try {
+          await interaction.deferReply({ ephemeral: true });
+          const channelId = interaction.customId.split(':')[1];
+          if (interaction.channel.id !== channelId) {
+            return interaction.editReply({ content: 'Use this in the ticket channel.' });
+          }
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`ticket_close_confirm:${channelId}`).setLabel('Close').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('ticket_close_cancel').setLabel('Nevermind').setStyle(ButtonStyle.Secondary),
+          );
+          const embed = new EmbedBuilder().setTitle('Confirm Close').setDescription('Are you sure you want to close this ticket?').setColor(0xFFAA00);
+          return interaction.editReply({ embeds: [embed], components: [row] });
+        } catch (error) {
+          console.error('Error in ticket_close:', error);
+          try {
+            if (interaction.deferred) {
+              return interaction.editReply({ content: '❌ Failed to show close confirmation.' });
+            } else {
+              return interaction.reply({ content: '❌ Failed to show close confirmation.', ephemeral: true });
+            }
+          } catch {}
+        }
       }
       if (interaction.customId.startsWith('ticket_close_confirm:')) {
-        await interaction.deferReply({ ephemeral: true });
-        const channelId = interaction.customId.split(':')[1];
-        if (interaction.channel.id !== channelId) return interaction.editReply({ content: 'Use this in the ticket channel.' });
-        const meta = await getTicketMeta(interaction.channel);
-        await interaction.editReply({ content: '✅ Closing ticket...' });
-        return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null, ticketId: meta.ticketId });
+        try {
+          await interaction.deferReply({ ephemeral: true });
+          const channelId = interaction.customId.split(':')[1];
+          if (interaction.channel.id !== channelId) {
+            return interaction.editReply({ content: 'Use this in the ticket channel.' });
+          }
+          const meta = await getTicketMeta(interaction.channel);
+          await interaction.editReply({ content: '✅ Closing ticket...' });
+          return logAndCloseTicket(interaction.channel, { category: meta.category, openerId: meta.openerId, claimedBy: meta.claimedBy, closedBy: interaction.user.id, reason: null, ticketId: meta.ticketId });
+        } catch (error) {
+          console.error('Error in ticket_close_confirm:', error);
+          try {
+            if (interaction.deferred) {
+              return interaction.editReply({ content: '❌ Failed to close ticket.' });
+            } else {
+              return interaction.reply({ content: '❌ Failed to close ticket.', ephemeral: true });
+            }
+          } catch {}
+        }
       }
       
       if (interaction.customId.startsWith('close_req_confirm:')) {

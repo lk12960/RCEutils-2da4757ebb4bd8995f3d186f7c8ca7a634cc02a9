@@ -46,12 +46,31 @@ This guide will help you deploy the RCE Utilities Discord bot to Render.
 
 Click **"Advanced"** → **"Add Environment Variable"** and add all of the following:
 
+### ⚠️ IMPORTANT: Discord OAuth Setup (Required for Web Dashboard)
+
+Before adding environment variables, configure Discord OAuth:
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Select your application (Client ID: `1385634318419886162`)
+3. Go to **OAuth2** → **General**
+4. Under **Redirects**, add: `https://kcutils.onrender.com/auth/discord/callback`
+   - ⚠️ Replace `kcutils.onrender.com` with your actual Render service URL
+5. **Save Changes**
+6. Copy your **Client Secret** from this page (you'll need it below)
+
 ### Required Discord Configuration:
 | Variable Name | Description | Example |
 |--------------|-------------|---------|
 | `TOKEN` | Discord bot token | `MTM4NTYzNDMxODQxOTg4NjE2Mg...` |
 | `CLIENT_ID` | Discord application client ID | `1385634318419886162` |
+| `CLIENT_SECRET` | Discord OAuth client secret | `abcd1234efgh5678...` |
 | `GUILD_ID` | Your Discord server ID | `1297697183503745066` |
+
+### Web Dashboard Configuration:
+| Variable Name | Description | Example |
+|--------------|-------------|---------|
+| `APPEAL_BASE_URL` | Your Render service URL | `https://kcutils.onrender.com` |
+| `PORT` | Port for web server (auto-set by Render) | `3000` |
 
 ### Role IDs:
 | Variable Name | Description |
